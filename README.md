@@ -2,7 +2,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![aiogram](https://img.shields.io/badge/aiogram-3.x-green.svg)](https://docs.aiogram.dev/)
-[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4-orange.svg)](https://openai.com/)
+[![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-orange.svg)](https://openai.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A smart Telegram bot that automatically detects and translates messages between **Russian** 🇷🇺, **English** 🇺🇸, and **Thai** 🇹🇭 using OpenAI's powerful translation capabilities.
@@ -70,7 +70,7 @@ Required environment variables:
 ```env
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-4
+OPENAI_MODEL=gpt-4o
 ```
 
 ### 4. Get Your API Keys
@@ -235,7 +235,13 @@ async def voice_handler(message: Message):
 |----------|---------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Required | Your Telegram bot token |
 | `OPENAI_API_KEY` | Required | OpenAI API key |
-| `OPENAI_MODEL` | `gpt-4` | Model to use (`gpt-4`, `gpt-4-turbo`, `gpt-3.5-turbo`) |
+| `OPENAI_MODEL` | `gpt-4o` | Model to use (`gpt-4o`, `gpt-4-turbo`, `gpt-4`, `gpt-3.5-turbo`) |
+
+### Model Recommendations
+- **gpt-4o** (default) - ⭐ Best balance: fast, accurate, cost-effective
+- **gpt-4-turbo** - High quality, slower, more expensive
+- **gpt-4** - Standard quality, slowest
+- **gpt-3.5-turbo** - Fastest, cheapest, lower quality for Thai
 
 ### Supported Languages
 | Language | Code | Flag |
@@ -256,7 +262,7 @@ async def voice_handler(message: Message):
 **❌ Translation failures**
 - Verify OpenAI API key and billing status
 - Check API quota and usage limits
-- Try switching to `gpt-3.5-turbo` for cost efficiency
+- Try switching to `gpt-3.5-turbo` for cost efficiency (note: lower quality for Thai)
 
 **❌ Language detection issues**
 - Send longer text (minimum 5-10 words recommended)

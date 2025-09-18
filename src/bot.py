@@ -1,22 +1,18 @@
 import asyncio
 import logging
 import os
-from typing import Optional, Tuple
+from typing import Dict, Set
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
 from langdetect import detect, LangDetectException
-import openai
 from openai import AsyncOpenAI
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -24,45 +20,68 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4")
 
 if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
-    raise ValueError("TELEGRAM_BOT_TOKEN and OPENAI_API_KEY must be set in environment")
+    raise ValueError("TELEGRAM_BOT_TOKEN and OPENAI_API_KEY must be set")
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 SUPPORTED_LANGUAGES = {
-    "ru": "Russian",
-    "en": "English",
-    "th": "Thai"
+    "ru": {"name": "Russian", "flag": "🇷🇺"},
+    "en": {"name": "English", "flag": "🇺🇸"},
+    "th": {"name": "Thai", "flag": "🇹🇭"}
 }
 
-LANGUAGE_FLAGS = {
-    "ru": "🇷🇺",
-    "en": "🇺🇸",
-    "th": "🇹🇭"
-}
+# TODO: Replace with persistent storage (database/redis)
+user_preferences: Dict[int, Set[str]] = {}
 
-def detect_language(text: str) -> Optional[str]:
-    """Detect language of the input text. Returns language code or None if unsupported."""
+def get_user_preferences(user_id: int) -> Set[str]:
+    """Get user's enabled translation languages"""
+    if user_id not in user_preferences:
+        # Default: enable all languages except source
+        user_preferences[user_id] = {"ru", "en", "th"}
+    return user_preferences[user_id]
+
+def update_user_preference(user_id: int, lang_code: str) -> Set[str]:
+    """Toggle language preference for user"""
+    prefs = get_user_preferences(user_id)
+    if lang_code in prefs:
+        prefs.discard(lang_code)
+    else:
+        prefs.add(lang_code)
+
+    # Auto-fallback: if all disabled, enable the other two
+    if not prefs:
+        all_langs = set(SUPPORTED_LANGUAGES.keys())
+        prefs.update(all_langs)
+
+    user_preferences[user_id] = prefs
+    return prefs
+
+def detect_language(text: str) -> str:
+    """Detect language with fallback"""
     try:
         detected = detect(text)
         return detected if detected in SUPPORTED_LANGUAGES else None
     except LangDetectException:
-        logger.warning(f"Failed to detect language for text: {text[:50]}...")
+        logger.warning(f"Language detection failed for: {text[:50]}...")
         return None
 
-async def translate_text(text: str, source_lang: str) -> Optional[Tuple[str, str, str, str]]:
-    """Translate text to the other two supported languages with retry logic.
-    Returns tuple of (first_lang_code, first_translation, second_lang_code, second_translation)"""
-    target_languages = [lang for lang in SUPPORTED_LANGUAGES if lang != source_lang]
+async def translate_text(text: str, source_lang: str, target_langs: Set[str]) -> Dict[str, str]:
+    """Translate text to target languages with retry logic"""
+    if source_lang in target_langs:
+        target_langs = target_langs - {source_lang}
 
-    prompt = f"""Translate the following {SUPPORTED_LANGUAGES[source_lang]} text into {SUPPORTED_LANGUAGES[target_languages[0]]} and {SUPPORTED_LANGUAGES[target_languages[1]]}.
+    if not target_langs:
+        return {}
 
-Provide only the translations, one per line, in this exact format:
-{SUPPORTED_LANGUAGES[target_languages[0]]}: [translation]
-{SUPPORTED_LANGUAGES[target_languages[1]]}: [translation]
+    target_names = [SUPPORTED_LANGUAGES[lang]["name"] for lang in target_langs]
+    prompt = f"""Translate this {SUPPORTED_LANGUAGES[source_lang]["name"]} text into {', '.join(target_names)}.
 
-Text to translate: {text}"""
+Provide only the translations, one per line:
+{chr(10).join(f'{SUPPORTED_LANGUAGES[lang]["name"]}: [translation]' for lang in target_langs)}
+
+Text: {text}"""
 
     for attempt in range(3):
         try:
@@ -74,111 +93,172 @@ Text to translate: {text}"""
             )
 
             content = response.choices[0].message.content.strip()
-            lines = content.split('\n')
+            translations = {}
 
-            if len(lines) >= 2:
-                first_translation = lines[0].split(': ', 1)[1] if ': ' in lines[0] else lines[0]
-                second_translation = lines[1].split(': ', 1)[1] if ': ' in lines[1] else lines[1]
+            for line in content.split('\n'):
+                if ':' in line:
+                    lang_name, translation = line.split(':', 1)
+                    lang_name = lang_name.strip()
+                    translation = translation.strip()
 
-                return (target_languages[0], first_translation, target_languages[1], second_translation)
+                    # Find language code by name
+                    for code, info in SUPPORTED_LANGUAGES.items():
+                        if info["name"] == lang_name and code in target_langs:
+                            translations[code] = translation
+                            break
 
-            return None
-        except openai.RateLimitError:
-            if attempt < 2:
-                await asyncio.sleep(2 ** attempt)
-                continue
-            logger.error("Rate limit exceeded after retries")
-            return None
+            return translations
+
         except Exception as e:
             logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
             if attempt < 2:
-                await asyncio.sleep(1)
+                await asyncio.sleep(2 ** attempt)
                 continue
-            return None
+            return {}
 
-    return None
+def build_preferences_keyboard(user_id: int) -> InlineKeyboardMarkup:
+    """Build inline keyboard for language preferences"""
+    prefs = get_user_preferences(user_id)
+    buttons = []
+
+    for lang_code, info in SUPPORTED_LANGUAGES.items():
+        status = "✅" if lang_code in prefs else "☐"
+        text = f"{status} {info['flag']} {info['name']}"
+        buttons.append([InlineKeyboardButton(
+            text=text,
+            callback_data=f"toggle_{lang_code}"
+        )])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
-    """Handle /start command."""
-    welcome_text = (
-        "🌍 Welcome to the Translation Bot!\n\n"
-        "I can translate messages between:\n"
-        "• Russian (Русский)\n"
-        "• English\n"
-        "• Thai (ไทย)\n\n"
-        "Just send me a text message and I'll detect the language and translate it to the other two languages!"
+    """Welcome message with instructions"""
+    text = (
+        "🌍 **Translation Bot**\n\n"
+        "I translate between Russian 🇷🇺, English 🇺🇸, and Thai 🇹🇭!\n\n"
+        "**How it works:**\n"
+        "• Send any text in supported languages\n"
+        "• I'll detect the language and translate to your enabled targets\n"
+        "• Use /menu to customize which languages you want\n\n"
+        "**Default:** I translate to all other languages\n"
+        "Try sending: \"Hello, how are you?\""
     )
-    await message.reply(welcome_text)
+    await message.reply(text, parse_mode="Markdown")
+
+@dp.message(Command("menu"))
+async def menu_handler(message: Message):
+    """Show language preferences menu"""
+    prefs = get_user_preferences(message.from_user.id)
+    enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in prefs]
+
+    text = (
+        "⚙️ **Translation Preferences**\n\n"
+        f"**Currently enabled:** {', '.join(enabled)}\n\n"
+        "Toggle languages below:"
+    )
+
+    keyboard = build_preferences_keyboard(message.from_user.id)
+    await message.reply(text, reply_markup=keyboard, parse_mode="Markdown")
+
+@dp.callback_query(F.data.startswith("toggle_"))
+async def toggle_preference(callback: CallbackQuery):
+    """Handle language preference toggle"""
+    lang_code = callback.data.split("_")[1]
+
+    if lang_code not in SUPPORTED_LANGUAGES:
+        await callback.answer("Invalid language")
+        return
+
+    prefs = update_user_preference(callback.from_user.id, lang_code)
+    enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in prefs]
+
+    # Update keyboard
+    keyboard = build_preferences_keyboard(callback.from_user.id)
+
+    text = (
+        "⚙️ **Translation Preferences**\n\n"
+        f"**Currently enabled:** {', '.join(enabled)}\n\n"
+        "Toggle languages below:"
+    )
+
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+    await callback.answer(f"✅ Updated preferences: {', '.join(enabled)}")
 
 @dp.message(F.voice)
 async def voice_handler(message: Message):
-    """Handle voice messages - not implemented yet."""
+    """Handle voice messages - not implemented"""
     # TODO: Implement voice translation
     # 1. Download voice file: file = await bot.get_file(message.voice.file_id)
-    # 2. Download file content: file_content = await bot.download_file(file.file_path)
-    # 3. Send to OpenAI Whisper: transcription = await openai_client.audio.transcriptions.create(...)
-    # 4. Translate transcribed text using existing translate_text function
+    # 2. Get file content: file_path = file.file_path; file_content = await bot.download_file(file_path)
+    # 3. Send to Whisper: transcription = await openai_client.audio.transcriptions.create(model="whisper-1", file=file_content)
+    # 4. Process transcription: await process_translation(message, transcription.text)
 
     await message.reply(
-        "🎤 Voice translation is not implemented yet.\n"
+        "🎤 Voice translation isn't available yet.\n"
         "Please send text messages for now!"
     )
 
 @dp.message(F.text)
 async def text_handler(message: Message):
-    """Handle text messages for translation."""
-    text = message.text
+    """Handle text translation"""
+    text = message.text.strip()
 
-    if not text or len(text.strip()) == 0:
-        await message.reply("Please send a non-empty text message.")
+    if not text:
+        await message.reply("Please send a non-empty message.")
         return
 
-    detected_lang = detect_language(text)
-
-    if not detected_lang:
+    # Detect language
+    source_lang = detect_language(text)
+    if not source_lang:
         await message.reply(
-            "❌ I couldn't detect the language or it's not supported.\n"
-            "Try sending longer text. Examples:\n\n"
-            "🇷🇺 Russian: \"Привет, как у тебя дела сегодня?\"\n"
-            "🇺🇸 English: \"Hello, how are you doing today?\"\n"
-            "🇹🇭 Thai: \"สวัสดี เป็นอย่างไรบ้าง วันนี้\""
+            "❌ Couldn't detect the language.\n\n"
+            "Supported languages:\n"
+            "🇷🇺 Russian: \"Привет, как дела?\"\n"
+            "🇺🇸 English: \"Hello, how are you?\"\n"
+            "🇹🇭 Thai: \"สวัสดี เป็นอย่างไรบ้าง\""
         )
         return
 
-    logger.info(f"Detected language: {detected_lang} for text: {text[:50]}...")
+    # Get user preferences
+    target_langs = get_user_preferences(message.from_user.id)
+    if source_lang in target_langs:
+        target_langs = target_langs - {source_lang}
 
+    if not target_langs:
+        # Fallback: translate to other languages
+        all_langs = set(SUPPORTED_LANGUAGES.keys())
+        target_langs = all_langs - {source_lang}
+
+    # Translate
     try:
-        translating_msg = await message.reply("🔄 Translating...")
+        status_msg = await message.reply("🔄 Translating...")
 
-        translations = await translate_text(text, detected_lang)
+        translations = await translate_text(text, source_lang, target_langs)
+
+        await status_msg.delete()
 
         if not translations:
-            await translating_msg.delete()
-            await message.reply("❌ Sorry, translation failed. Please try again later.")
+            await message.reply("❌ Translation failed. Please try again.")
             return
 
-        first_lang_code, first_translation, second_lang_code, second_translation = translations
-
-        first_message = f"{LANGUAGE_FLAGS[first_lang_code]} {SUPPORTED_LANGUAGES[first_lang_code]}:\n{first_translation}"
-        second_message = f"{LANGUAGE_FLAGS[second_lang_code]} {SUPPORTED_LANGUAGES[second_lang_code]}:\n{second_translation}"
-
-        await translating_msg.delete()
-        await message.reply(first_message)
-        await message.reply(second_message)
+        # Send translations
+        for lang_code, translation in translations.items():
+            lang_info = SUPPORTED_LANGUAGES[lang_code]
+            response = f"{lang_info['flag']} {lang_info['name']}:\n{translation}"
+            await message.reply(response)
 
     except Exception as e:
         logger.error(f"Translation error: {e}")
         try:
-            await translating_msg.delete()
+            await status_msg.delete()
         except:
             pass
-        await message.reply("❌ An error occurred during translation. Please try again.")
+        await message.reply("❌ An error occurred. Please try again.")
 
 async def main():
-    """Main function to start the bot."""
+    """Start the bot"""
     logger.info("Starting Translation Bot...")
-
     try:
         await dp.start_polling(bot)
     except Exception as e:
