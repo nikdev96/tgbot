@@ -400,11 +400,11 @@ def format_admin_dashboard() -> str:
     total_voice_responses = sum(a["voice_responses_sent"] for a in user_analytics.values())
 
     text = (
-        "🔧 **Admin Dashboard**\n\n"
-        f"**Total Users:** {total_users}\n"
-        f"**Active:** {active_users} | **Disabled:** {disabled_users}\n"
-        f"**Voice Replies:** {voice_enabled_users} users | {total_voice_responses} sent\n\n"
-        "**User Summary:**\n"
+        "🔧 Admin Dashboard\n\n"
+        f"Total Users: {total_users}\n"
+        f"Active: {active_users} | Disabled: {disabled_users}\n"
+        f"Voice Replies: {voice_enabled_users} users | {total_voice_responses} sent\n\n"
+        "User Summary:\n"
     )
 
     for user_id, analytics in sorted(user_analytics.items()):
@@ -418,7 +418,7 @@ def format_admin_dashboard() -> str:
         voice_sent = analytics["voice_responses_sent"]
 
         text += (
-            f"\n**{username}** ({user_id})\n"
+            f"\n{username} ({user_id})\n"
             f"Status: {status}\n"
             f"Languages: {prefs}\n"
             f"Messages: {msg_count} | Voice: {voice_replies} ({voice_sent} sent)\n"
@@ -613,7 +613,7 @@ async def admin_handler(message: Message):
     text = format_admin_dashboard()
     keyboard = build_admin_dashboard_keyboard()
 
-    await message.reply(text, reply_markup=keyboard, parse_mode="Markdown")
+    await message.reply(text, reply_markup=keyboard)
 
 @dp.callback_query(F.data.startswith("toggle_"))
 async def toggle_preference(callback: CallbackQuery):
