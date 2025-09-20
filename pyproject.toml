@@ -12,6 +12,7 @@ aiogram = "^3.0.0"
 openai = "^1.0.0"
 langdetect = "^1.0.9"
 python-dotenv = "^1.0.0"
+pydub = "^0.25.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"
