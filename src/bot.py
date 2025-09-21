@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Set, Optional, List
 
+
+import re
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, User
@@ -366,6 +368,7 @@ def build_preferences_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
+
 def build_admin_dashboard_keyboard() -> InlineKeyboardMarkup:
     """Build admin dashboard keyboard"""
     buttons = [
@@ -375,21 +378,31 @@ def build_admin_dashboard_keyboard() -> InlineKeyboardMarkup:
     # Add user management buttons for each user
     for user_id, analytics in user_analytics.items():
         profile = analytics["user_profile"]
-        username = profile["username"] or profile["first_name"] or f"User {user_id}"
+        raw_username = profile["username"] or profile["first_name"] or f"User {user_id}"
+        # Limit button text length to prevent callback_data issues
+        button_username = raw_username[:15] + "..." if len(raw_username) > 15 else raw_username
         status = "🔴" if analytics["is_disabled"] else "🟢"
 
         if analytics["is_disabled"]:
             buttons.append([InlineKeyboardButton(
-                text=f"✅ Enable {username}",
+                text=f"✅ Enable {button_username}",
                 callback_data=f"admin_enable_{user_id}"
             )])
         else:
             buttons.append([InlineKeyboardButton(
-                text=f"❌ Disable {username}",
+                text=f"❌ Disable {button_username}",
                 callback_data=f"admin_disable_{user_id}"
             )])
 
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def escape_markdown(text: str) -> str:
+    """Escape special Markdown characters"""
+    special_chars = ["_", "*", "[", "]", "(", ")", "~", "`", ">", "#", "+", "-", "=", "|", "{", "}", ".", "!"]
+    for char in special_chars:
+        text = text.replace(char, f"\\{char}")
+    return text
+
 
 def format_admin_dashboard() -> str:
     """Format admin dashboard text"""
@@ -409,9 +422,12 @@ def format_admin_dashboard() -> str:
 
     for user_id, analytics in sorted(user_analytics.items()):
         profile = analytics["user_profile"]
-        username = profile["username"] or profile["first_name"] or f"User {user_id}"
+        raw_username = profile["username"] or profile["first_name"] or f"User {user_id}"
+        # Limit button text length to prevent callback_data issues
+        button_username = raw_username[:15] + "..." if len(raw_username) > 15 else raw_username
+        username = escape_markdown(raw_username)
         status = "🔴 Disabled" if analytics["is_disabled"] else "🟢 Active"
-        prefs = ", ".join(analytics["preferred_targets"])
+        prefs = escape_markdown(", ".join(analytics["preferred_targets"]))
         last_activity = analytics["last_activity"].strftime("%Y-%m-%d %H:%M")
         msg_count = analytics["message_count"]
         voice_replies = "🎤 ON" if analytics["voice_replies_enabled"] else "🎤 OFF"
@@ -595,7 +611,11 @@ async def menu_handler(message: Message):
         "Toggle languages below:"
     )
 
-    keyboard = build_preferences_keyboard(user_id)
+    try:
+        keyboard = build_preferences_keyboard(user_id)
+    except Exception as e:
+        logger.error(f"Error building preferences keyboard: {e}")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Settings", callback_data="menu")]])
     await message.reply(text, reply_markup=keyboard, parse_mode="Markdown")
 
 @dp.message(Command("admin"))
@@ -610,8 +630,16 @@ async def admin_handler(message: Message):
 
     audit_logger.info(f"ADMIN_ACCESS: Admin {user_id} accessed dashboard")
 
-    text = format_admin_dashboard()
-    keyboard = build_admin_dashboard_keyboard()
+    try:
+        text = format_admin_dashboard()
+    except Exception as e:
+        logger.error(f"Error formatting admin dashboard: {e}")
+        text = "❌ Error loading dashboard data"
+    try:
+        keyboard = build_admin_dashboard_keyboard()
+    except Exception as e:
+        logger.error(f"Error building admin keyboard: {e}")
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔄 Refresh", callback_data="admin_refresh")]])
 
     await message.reply(text, reply_markup=keyboard)
 
@@ -682,7 +710,7 @@ async def admin_callback(callback: CallbackQuery):
             if "message is not modified" in str(e):
                 await callback.answer("✅ Dashboard already up to date")
             else:
-                await callback.answer("❌ Error refreshing dashboard")
+                logger.error(f"Error refreshing dashboard: {e}"); await callback.answer("❌ Error refreshing dashboard")
 
     elif action in ["enable", "disable"]:
         target_user_id = int(action_parts[2])
