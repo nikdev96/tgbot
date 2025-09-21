@@ -491,6 +491,32 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ![GitHub forks](https://img.shields.io/github/forks/yourusername/telegram-translator-bot?style=social)
 ![GitHub issues](https://img.shields.io/github/issues/yourusername/telegram-translator-bot)
 
+## 🆕 Latest Updates
+
+### v2.1.0 - Keyboard Fixes & Admin Dashboard Improvements (Sept 2024)
+
+**🐛 Bug Fixes:**
+- ✅ Fixed missing buttons in admin dashboard (`/admin`)
+- ✅ Fixed missing buttons in preferences menu (`/menu`)
+- ✅ Fixed "Error refreshing dashboard" when clicking Refresh button
+- ✅ Fixed Markdown parsing errors with special characters in usernames
+
+**🔧 Technical Improvements:**
+- ✅ Added missing `return` statements in keyboard building functions
+- ✅ Implemented comprehensive error handling for all UI components
+- ✅ Added `escape_markdown()` function for proper text formatting
+- ✅ Improved logging system for better debugging
+- ✅ Added fallback keyboards for error scenarios
+- ✅ Separated raw and escaped text handling for buttons vs messages
+
+**🚀 Deployment:**
+- ✅ Successfully deployed on Google Cloud Platform (Ubuntu server)
+- ✅ Running as systemd service (`translator-bot.service`)
+- ✅ Configured with automatic startup and monitoring
+- ✅ All sensitive data properly secured (no credentials exposed)
+
+**🔗 Branch:** `bugfix/admin-dashboard-keyboard-fixes`
+
 ---
 
 <div align="center">
