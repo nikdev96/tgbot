@@ -163,12 +163,48 @@ def update_user_preference(user_id: int, lang_code: str) -> Set[str]:
     return prefs
 
 def detect_language(text: str) -> str:
-    """Detect language with fallback"""
+    """Detect language with improved logic for Cyrillic languages"""
+    
+    # Language mapping for commonly misdetected languages
+    LANGUAGE_MAPPING = {
+        'mk': 'ru',  # Macedonian often confused with Russian
+        'bg': 'ru',  # Bulgarian might also be confused
+        'sr': 'ru',  # Serbian might also be confused  
+        'uk': 'ru',  # Ukrainian might also be confused
+    }
+    
     try:
         detected = detect(text)
-        return detected if detected in SUPPORTED_LANGUAGES else None
+        
+        # If detected language is in supported languages, return it
+        if detected in SUPPORTED_LANGUAGES:
+            return detected
+            
+        # If detected language can be mapped to supported language, map it
+        if detected in LANGUAGE_MAPPING:
+            mapped_lang = LANGUAGE_MAPPING[detected]
+            if mapped_lang in SUPPORTED_LANGUAGES:
+                return mapped_lang
+                
+        # Additional heuristics for Cyrillic text
+        if re.search(r'[а-яё]', text.lower()):
+            # Contains Cyrillic characters - likely Russian
+            return 'ru'
+            
+        # Additional heuristics for English
+        if re.search(r'^[a-zA-Z\s\.,\!\?\-]+$', text):
+            # Contains only Latin characters and common punctuation
+            return 'en'
+            
+        return None
+        
     except LangDetectException:
         logger.warning(f"Language detection failed for: {text[:50]}...")
+        # Fallback to heuristic detection
+        if re.search(r'[а-яё]', text.lower()):
+            return 'ru'
+        elif re.search(r'^[a-zA-Z\s\.,\!\?\-]+$', text):
+            return 'en'
         return None
 
 async def download_and_convert_audio(file_path: str, output_format: str = "wav") -> Path:
