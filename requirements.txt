@@ -4,3 +4,4 @@ langdetect>=1.0.9
 python-dotenv>=1.0.0
 pydub>=0.25.1
 PyYAML>=6.0.0
+cachetools>=5.0.0

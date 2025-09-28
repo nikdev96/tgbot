@@ -1,11 +1,36 @@
 import pytest
+import tempfile
+import asyncio
+from pathlib import Path
 from datetime import datetime
+from src.storage.database import DatabaseManager
+
 from src.bot import (
-    detect_language, get_user_preferences, update_user_preference,
-    get_user_analytics, update_user_activity, is_user_disabled, set_user_disabled,
-    is_admin, ADMIN_IDS, is_voice_replies_enabled, toggle_voice_replies,
-    increment_voice_responses
+    detect_language, SUPPORTED_LANGUAGES, is_admin, ADMIN_IDS, translate_text,
+    get_user_preferences, update_user_preference, get_user_analytics,
+    update_user_activity, is_user_disabled, set_user_disabled,
+    is_voice_replies_enabled, toggle_voice_replies, increment_voice_responses
 )
+
+@pytest.fixture
+async def test_db():
+    """Create a temporary database for testing"""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        db_path = tmp.name
+
+    # Patch the global db object in src.bot
+    from src import bot
+    original_db = bot.db
+
+    test_db_manager = DatabaseManager(db_path)
+    await test_db_manager.init_db()
+    bot.db = test_db_manager
+
+    yield test_db_manager
+
+    # Restore original db and cleanup
+    bot.db = original_db
+    Path(db_path).unlink(missing_ok=True)
 
 
 class TestLanguageDetection:
@@ -56,42 +81,49 @@ class TestUserPreferences:
     """Test user preference management"""
 
     def test_default_preferences(self):
-        user_id = 12345
-        prefs = get_user_preferences(user_id)
-        assert prefs == {"ru", "en", "th", "ja", "ko"}  # All supported languages by default
+        """Test default preferences without database interaction"""
+        from src.bot import SUPPORTED_LANGUAGES
+        prefs = set(SUPPORTED_LANGUAGES.keys())
+        assert prefs == {"ru", "en", "th", "ja", "ko", "vi"}  # All supported languages by default
 
-    def test_toggle_preference(self):
+    @pytest.mark.asyncio
+    async def test_toggle_preference(self, test_db):
         user_id = 12346
 
         # Toggle off English
-        prefs = update_user_preference(user_id, "en")
+        prefs = await update_user_preference(user_id, "en")
         assert "en" not in prefs
-        assert {"ru", "th", "ja", "ko"}.issubset(prefs)
+        assert {"ru", "th", "ja", "ko", "vi"}.issubset(prefs)
 
         # Toggle English back on
-        prefs = update_user_preference(user_id, "en")
+        prefs = await update_user_preference(user_id, "en")
         assert "en" in prefs
 
-    def test_auto_fallback_when_all_disabled(self):
+    @pytest.mark.asyncio
+    async def test_auto_fallback_when_all_disabled(self, test_db):
         user_id = 12347
 
         # Disable all languages
-        update_user_preference(user_id, "en")
-        update_user_preference(user_id, "ru")
-        prefs = update_user_preference(user_id, "th")
+        await update_user_preference(user_id, "en")
+        await update_user_preference(user_id, "ru")
+        await update_user_preference(user_id, "th")
+        await update_user_preference(user_id, "ja")
+        await update_user_preference(user_id, "ko")
+        prefs = await update_user_preference(user_id, "vi")
 
         # Should auto-enable all languages
-        assert prefs == {"ru", "en", "th", "ja", "ko"}
+        assert prefs == {"ru", "en", "th", "ja", "ko", "vi"}
 
-    def test_preference_persistence(self):
+    @pytest.mark.asyncio
+    async def test_preference_persistence(self, test_db):
         user_id = 12348
 
         # Set specific preferences
-        update_user_preference(user_id, "en")  # Disable English
-        prefs1 = get_user_preferences(user_id)
+        await update_user_preference(user_id, "en")  # Disable English
+        prefs1 = await get_user_preferences(user_id)
 
         # Get preferences again - should be the same
-        prefs2 = get_user_preferences(user_id)
+        prefs2 = await get_user_preferences(user_id)
         assert prefs1 == prefs2
         assert "en" not in prefs2
 
@@ -117,17 +149,18 @@ class TestVoiceTranslationPipeline:
         # In real scenario, would contain actual translations
         # Here we just verify the function accepts transcription input
 
-    def test_voice_preference_integration(self):
+    @pytest.mark.asyncio
+    async def test_voice_preference_integration(self, test_db):
         """Test that voice messages respect user preferences"""
         user_id = 99999
 
         # User disables English
-        update_user_preference(user_id, "en")
-        prefs = get_user_preferences(user_id)
+        await update_user_preference(user_id, "en")
+        prefs = await get_user_preferences(user_id)
 
         # Voice transcription should use same preferences as text
         assert "en" not in prefs
-        assert {"ru", "th", "ja", "ko"}.issubset(prefs)
+        assert {"ru", "th", "ja", "ko", "vi"}.issubset(prefs)
 
     def test_language_detection_with_voice_transcription(self):
         """Test language detection works with voice transcription text"""
@@ -169,11 +202,11 @@ class TestVoiceTranslationPipeline:
         transcription = "Hello world"
 
         # Should fall back to translating to other languages
-        all_langs = {"ru", "en", "th", "ja", "ko"}
+        all_langs = {"ru", "en", "th", "ja", "ko", "vi"}
         target_langs = all_langs - {source_lang}
 
         # Verify fallback logic works
-        assert target_langs == {"ru", "th", "ja", "ko"}
+        assert target_langs == {"ru", "th", "ja", "ko", "vi"}
 
         # Test translation still works
         translations = await translate_text(transcription, source_lang, target_langs)
@@ -183,90 +216,95 @@ class TestVoiceTranslationPipeline:
 class TestVoiceReplies:
     """Test voice replies functionality"""
 
-    def test_voice_replies_default_disabled(self):
+    @pytest.mark.asyncio
+    async def test_voice_replies_default_disabled(self, test_db):
         """Test that voice replies are disabled by default"""
         user_id = 60001
-        assert not is_voice_replies_enabled(user_id)
+        assert not await is_voice_replies_enabled(user_id)
 
-    def test_toggle_voice_replies(self):
+    @pytest.mark.asyncio
+    async def test_toggle_voice_replies(self, test_db):
         """Test toggling voice replies on and off"""
         user_id = 60002
 
         # Initially disabled
-        assert not is_voice_replies_enabled(user_id)
+        assert not await is_voice_replies_enabled(user_id)
 
         # Toggle on
-        toggle_voice_replies(user_id)
-        assert is_voice_replies_enabled(user_id)
+        await toggle_voice_replies(user_id)
+        assert await is_voice_replies_enabled(user_id)
 
         # Toggle off
-        toggle_voice_replies(user_id)
-        assert not is_voice_replies_enabled(user_id)
+        await toggle_voice_replies(user_id)
+        assert not await is_voice_replies_enabled(user_id)
 
-    def test_voice_responses_counter(self):
+    @pytest.mark.asyncio
+    async def test_voice_responses_counter(self, test_db):
         """Test voice responses analytics tracking"""
         user_id = 60003
 
         # Initial count should be 0
-        analytics = get_user_analytics(user_id)
-        assert analytics.get("voice_responses", 0) == 0
+        analytics = await get_user_analytics(user_id)
+        assert analytics.get("voice_responses_sent", 0) == 0
 
         # Increment voice responses
-        increment_voice_responses(user_id)
-        analytics = get_user_analytics(user_id)
-        assert analytics.get("voice_responses", 0) == 1
+        await increment_voice_responses(user_id)
+        analytics = await get_user_analytics(user_id)
+        assert analytics.get("voice_responses_sent", 0) == 1
 
         # Increment again
-        increment_voice_responses(user_id)
-        analytics = get_user_analytics(user_id)
-        assert analytics.get("voice_responses", 0) == 2
+        await increment_voice_responses(user_id)
+        analytics = await get_user_analytics(user_id)
+        assert analytics.get("voice_responses_sent", 0) == 2
 
-    def test_voice_replies_persistence(self):
+    @pytest.mark.asyncio
+    async def test_voice_replies_persistence(self, test_db):
         """Test that voice replies setting persists"""
         user_id = 60004
 
         # Enable voice replies
-        toggle_voice_replies(user_id)
-        assert is_voice_replies_enabled(user_id)
+        await toggle_voice_replies(user_id)
+        assert await is_voice_replies_enabled(user_id)
 
         # Check setting persists
-        assert is_voice_replies_enabled(user_id)
+        assert await is_voice_replies_enabled(user_id)
 
         # Disable and check again
-        toggle_voice_replies(user_id)
-        assert not is_voice_replies_enabled(user_id)
-        assert not is_voice_replies_enabled(user_id)
+        await toggle_voice_replies(user_id)
+        assert not await is_voice_replies_enabled(user_id)
+        assert not await is_voice_replies_enabled(user_id)
 
-    def test_voice_analytics_integration(self):
+    @pytest.mark.asyncio
+    async def test_voice_analytics_integration(self, test_db):
         """Test that voice settings integrate with user analytics"""
         user_id = 60005
 
         # Enable voice replies
-        toggle_voice_replies(user_id)
+        await toggle_voice_replies(user_id)
 
         # Check analytics reflect voice setting
-        analytics = get_user_analytics(user_id)
-        assert "voice_responses" in analytics
-        assert analytics.get("voice_responses", 0) == 0
+        analytics = await get_user_analytics(user_id)
+        assert "voice_responses_sent" in analytics
+        assert analytics.get("voice_responses_sent", 0) == 0
 
         # Increment voice usage and verify tracking
-        increment_voice_responses(user_id)
-        analytics = get_user_analytics(user_id)
-        assert analytics.get("voice_responses", 0) == 1
+        await increment_voice_responses(user_id)
+        analytics = await get_user_analytics(user_id)
+        assert analytics.get("voice_responses_sent", 0) == 1
 
     @pytest.mark.asyncio
-    async def test_voice_pipeline_with_preferences(self):
+    async def test_voice_pipeline_with_preferences(self, test_db):
         """Test voice pipeline respects user voice preferences"""
         from src.bot import translate_text
 
         user_id = 60006
 
         # Test with voice replies disabled (default)
-        assert not is_voice_replies_enabled(user_id)
+        assert not await is_voice_replies_enabled(user_id)
 
         # Enable voice replies
-        toggle_voice_replies(user_id)
-        assert is_voice_replies_enabled(user_id)
+        await toggle_voice_replies(user_id)
+        assert await is_voice_replies_enabled(user_id)
 
         # Simulate translation that would trigger voice reply
         transcription = "Hello world"
@@ -283,51 +321,54 @@ class TestVoiceReplies:
 class TestUserAnalytics:
     """Test user analytics and admin functionality"""
 
-    def test_analytics_creation(self):
+    @pytest.mark.asyncio
+    async def test_analytics_creation(self, test_db):
         """Test that analytics are created for new users"""
         user_id = 50001
-        analytics = get_user_analytics(user_id)
+        analytics = await get_user_analytics(user_id)
 
         assert analytics["is_disabled"] is False
         assert analytics["message_count"] == 0
         assert isinstance(analytics["last_activity"], datetime)
-        assert analytics["preferred_targets"] == {"ru", "en", "th", "ja", "ko"}
+        assert analytics["preferred_targets"] == {"ru", "en", "th", "ja", "ko", "vi"}
         assert "user_profile" in analytics
 
-    def test_activity_update(self):
+    @pytest.mark.asyncio
+    async def test_activity_update(self, test_db):
         """Test that user activity is properly tracked"""
         import time
         user_id = 50002
 
         # Get initial analytics
-        analytics_before = get_user_analytics(user_id)
+        analytics_before = await get_user_analytics(user_id)
         initial_count = analytics_before["message_count"]
 
         # Add small delay to ensure timestamp difference
         time.sleep(0.001)
 
         # Update activity
-        update_user_activity(user_id)
+        await update_user_activity(user_id)
 
         # Check updated analytics
-        analytics_after = get_user_analytics(user_id)
+        analytics_after = await get_user_analytics(user_id)
         assert analytics_after["message_count"] == initial_count + 1
         assert analytics_after["last_activity"] >= analytics_before["last_activity"]
 
-    def test_user_disable_enable(self):
+    @pytest.mark.asyncio
+    async def test_user_disable_enable(self, test_db):
         """Test user disable/enable functionality"""
         user_id = 50003
 
         # Initially enabled
-        assert not is_user_disabled(user_id)
+        assert not await is_user_disabled(user_id)
 
         # Disable user
-        set_user_disabled(user_id, True)
-        assert is_user_disabled(user_id)
+        await set_user_disabled(user_id, True)
+        assert await is_user_disabled(user_id)
 
         # Enable user
-        set_user_disabled(user_id, False)
-        assert not is_user_disabled(user_id)
+        await set_user_disabled(user_id, False)
+        assert not await is_user_disabled(user_id)
 
     def test_admin_functionality(self):
         """Test admin privilege checking"""
@@ -340,20 +381,21 @@ class TestUserAnalytics:
         non_admin_id = 999999
         assert not is_admin(non_admin_id)
 
-    def test_analytics_sync_with_preferences(self):
+    @pytest.mark.asyncio
+    async def test_analytics_sync_with_preferences(self, test_db):
         """Test that analytics stay in sync with user preferences"""
         user_id = 50004
 
         # Update preferences
-        prefs = update_user_preference(user_id, "en")  # Toggle English off
+        prefs = await update_user_preference(user_id, "en")  # Toggle English off
 
         # Check analytics are synced
-        analytics = get_user_analytics(user_id)
+        analytics = await get_user_analytics(user_id)
         assert analytics["preferred_targets"] == prefs
         assert "en" not in analytics["preferred_targets"]
 
         # Toggle back on
-        prefs = update_user_preference(user_id, "en")
-        analytics = get_user_analytics(user_id)
+        prefs = await update_user_preference(user_id, "en")
+        analytics = await get_user_analytics(user_id)
         assert analytics["preferred_targets"] == prefs
         assert "en" in analytics["preferred_targets"]

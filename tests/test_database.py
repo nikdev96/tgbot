@@ -36,7 +36,7 @@ class TestDatabaseManager:
         user_id = 12345
         prefs = await db_manager.get_user_preferences(user_id)
 
-        expected = {"ru", "en", "th", "ja", "ko"}
+        expected = {"ru", "en", "th", "ja", "ko", "vi"}
         assert prefs == expected
 
     @pytest.mark.asyncio
@@ -69,7 +69,7 @@ class TestDatabaseManager:
         assert analytics["message_count"] == 0
         assert analytics["voice_responses_sent"] == 0
         assert analytics["user_profile"]["username"] == "testuser"
-        assert len(analytics["preferred_targets"]) == 5
+        assert len(analytics["preferred_targets"]) == 6
 
     @pytest.mark.asyncio
     async def test_user_analytics_update(self, db_manager):

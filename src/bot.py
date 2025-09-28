@@ -76,11 +76,9 @@ SUPPORTED_LANGUAGES = {
     "vi": {"name": "Vietnamese", "flag": "🇻🇳"}
 }
 
-# Legacy in-memory storage (deprecated - use database)
-user_preferences: Dict[int, Set[str]] = {}
-user_analytics: Dict[int, Dict] = {}
+# === USER MANAGEMENT FUNCTIONS ===
 
-async def get_user_analytics_async(user_id: int, user: Optional[User] = None) -> Dict:
+async def get_user_analytics(user_id: int, user: Optional[User] = None) -> Dict:
     """Get or create user analytics entry from database"""
     user_profile = None
     if user:
@@ -91,27 +89,9 @@ async def get_user_analytics_async(user_id: int, user: Optional[User] = None) ->
         }
     return await db.get_user_analytics(user_id, user_profile)
 
-def get_user_analytics(user_id: int, user: Optional[User] = None) -> Dict:
-    """Get or create user analytics entry"""
-    if user_id not in user_analytics:
-        user_analytics[user_id] = {
-            "is_disabled": False,
-            "preferred_targets": set(SUPPORTED_LANGUAGES.keys()),  # All languages enabled by default
-            "voice_replies_enabled": False,
-            "message_count": 0,
-            "voice_responses_sent": 0,
-            "last_activity": datetime.now(),
-            "user_profile": {
-                "username": user.username if user else None,
-                "first_name": user.first_name if user else None,
-                "last_name": user.last_name if user else None,
-            } if user else {"username": None, "first_name": None, "last_name": None}
-        }
-    return user_analytics[user_id]
-
-def update_user_activity(user_id: int, user: Optional[User] = None):
+async def update_user_activity(user_id: int, user: Optional[User] = None):
     """Update user activity timestamp and message count"""
-    analytics = get_user_analytics(user_id, user)
+    analytics = await get_user_analytics(user_id, user)
     analytics["last_activity"] = datetime.now()
     analytics["message_count"] += 1
 
@@ -123,48 +103,58 @@ def update_user_activity(user_id: int, user: Optional[User] = None):
             "last_name": user.last_name,
         }
 
+    # Save to database
+    await db.update_user_analytics(user_id, analytics)
+
 def is_admin(user_id: int) -> bool:
     """Check if user is admin"""
     return user_id in ADMIN_IDS
 
-def is_user_disabled(user_id: int) -> bool:
+async def is_user_disabled(user_id: int) -> bool:
     """Check if user is disabled"""
-    analytics = get_user_analytics(user_id)
+    analytics = await get_user_analytics(user_id)
     return analytics["is_disabled"]
 
-def set_user_disabled(user_id: int, disabled: bool) -> bool:
-    """Enable/disable user access"""
-    analytics = get_user_analytics(user_id)
+async def set_user_disabled(user_id: int, disabled: bool) -> bool:
+    """Enable/disable user access (async)"""
+    analytics = await get_user_analytics(user_id)
     analytics["is_disabled"] = disabled
     action = "disabled" if disabled else "enabled"
     audit_logger.info(f"ADMIN_ACTION: User {user_id} has been {action}")
+
+    # Save to database
+    await db.update_user_analytics(user_id, analytics)
     return not disabled
 
-def is_voice_replies_enabled(user_id: int) -> bool:
+async def is_voice_replies_enabled(user_id: int) -> bool:
     """Check if user has voice replies enabled"""
-    analytics = get_user_analytics(user_id)
+    analytics = await get_user_analytics(user_id)
     return analytics["voice_replies_enabled"]
 
-def toggle_voice_replies(user_id: int) -> bool:
+async def toggle_voice_replies(user_id: int) -> bool:
     """Toggle voice replies preference for user"""
-    analytics = get_user_analytics(user_id)
+    analytics = await get_user_analytics(user_id)
     analytics["voice_replies_enabled"] = not analytics["voice_replies_enabled"]
     enabled = analytics["voice_replies_enabled"]
     logger.info(f"User {user_id} voice replies {'enabled' if enabled else 'disabled'}")
+
+    # Save to database
+    await db.update_user_analytics(user_id, analytics)
     return enabled
 
-def increment_voice_responses(user_id: int):
+async def increment_voice_responses(user_id: int):
     """Increment voice response counter for analytics"""
-    analytics = get_user_analytics(user_id)
+    analytics = await get_user_analytics(user_id)
     analytics["voice_responses_sent"] += 1
+    await db.update_user_analytics(user_id, analytics)
 
-async def get_user_preferences_async(user_id: int) -> Set[str]:
+async def get_user_preferences(user_id: int) -> Set[str]:
     """Get user's enabled translation languages from database"""
     return await db.get_user_preferences(user_id)
 
-async def update_user_preference_async(user_id: int, lang_code: str) -> Set[str]:
+async def update_user_preference(user_id: int, lang_code: str) -> Set[str]:
     """Toggle language preference for user in database"""
-    prefs = await get_user_preferences_async(user_id)
+    prefs = await get_user_preferences(user_id)
     if lang_code in prefs:
         prefs.discard(lang_code)
     else:
@@ -174,37 +164,6 @@ async def update_user_preference_async(user_id: int, lang_code: str) -> Set[str]
         prefs.update(set(SUPPORTED_LANGUAGES.keys()))
 
     await db.update_user_preferences(user_id, prefs)
-    return prefs
-
-def get_user_preferences(user_id: int) -> Set[str]:
-    """Get user's enabled translation languages"""
-    if user_id not in user_preferences:
-        user_preferences[user_id] = set(SUPPORTED_LANGUAGES.keys())  # All languages by default
-
-    # Sync with analytics
-    analytics = get_user_analytics(user_id)
-    analytics["preferred_targets"] = user_preferences[user_id]
-
-    return user_preferences[user_id]
-
-def update_user_preference(user_id: int, lang_code: str) -> Set[str]:
-    """Toggle language preference for user"""
-    prefs = get_user_preferences(user_id)
-    if lang_code in prefs:
-        prefs.discard(lang_code)
-    else:
-        prefs.add(lang_code)
-
-    if not prefs:
-        all_langs = set(SUPPORTED_LANGUAGES.keys())
-        prefs.update(all_langs)
-
-    user_preferences[user_id] = prefs
-
-    # Sync with analytics
-    analytics = get_user_analytics(user_id)
-    analytics["preferred_targets"] = prefs
-
     return prefs
 
 def detect_language(text: str) -> str:
@@ -558,7 +517,7 @@ async def generate_parallel_voice_responses(message: Message, user_id: int, tran
 
     # Update analytics for successful responses
     if successful_responses > 0:
-        increment_voice_responses(user_id)
+        await increment_voice_responses(user_id)
         logger.info(f"Parallel voice responses completed for user {user_id}: {successful_responses} sent")
 
 async def translate_text(text: str, source_lang: str, target_langs: Set[str]) -> Dict[str, str]:
@@ -618,9 +577,9 @@ Text: {text}"""
                 continue
             return {}
 
-def build_preferences_keyboard(user_id: int) -> InlineKeyboardMarkup:
+async def build_preferences_keyboard(user_id: int) -> InlineKeyboardMarkup:
     """Build inline keyboard for language preferences"""
-    prefs = get_user_preferences(user_id)
+    prefs = await get_user_preferences(user_id)
     buttons = []
 
     for lang_code, info in SUPPORTED_LANGUAGES.items():
@@ -632,7 +591,7 @@ def build_preferences_keyboard(user_id: int) -> InlineKeyboardMarkup:
         )])
 
     # Add voice replies toggle
-    voice_enabled = is_voice_replies_enabled(user_id)
+    voice_enabled = await is_voice_replies_enabled(user_id)
     voice_status = "✅" if voice_enabled else "❌"
     voice_text = f"{voice_status} 🎤 Voice replies"
     buttons.append([InlineKeyboardButton(
@@ -643,21 +602,23 @@ def build_preferences_keyboard(user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def build_admin_dashboard_keyboard() -> InlineKeyboardMarkup:
-    """Build admin dashboard keyboard"""
+async def build_admin_dashboard_keyboard() -> InlineKeyboardMarkup:
+    """Build admin dashboard keyboard (async)"""
     buttons = [
         [InlineKeyboardButton(text="🔄 Refresh", callback_data="admin_refresh")],
     ]
 
-    # Add user management buttons for each user
-    for user_id, analytics in user_analytics.items():
-        profile = analytics["user_profile"]
+    # Get all users from database
+    all_users = await db.get_all_users()
+    for user_data in all_users:
+        user_id = user_data["user_id"]
+        profile = user_data["user_profile"]
         raw_username = profile["username"] or profile["first_name"] or f"User {user_id}"
         # Limit button text length to prevent callback_data issues
         button_username = raw_username[:15] + "..." if len(raw_username) > 15 else raw_username
-        status = "🔴" if analytics["is_disabled"] else "🟢"
+        status = "🔴" if user_data["is_disabled"] else "🟢"
 
-        if analytics["is_disabled"]:
+        if user_data["is_disabled"]:
             buttons.append([InlineKeyboardButton(
                 text=f"✅ Enable {button_username}",
                 callback_data=f"admin_enable_{user_id}"
@@ -678,13 +639,15 @@ def escape_markdown(text: str) -> str:
     return text
 
 
-def format_admin_dashboard() -> str:
-    """Format admin dashboard text"""
-    total_users = len(user_analytics)
-    active_users = sum(1 for a in user_analytics.values() if not a["is_disabled"])
+async def format_admin_dashboard() -> str:
+    """Format admin dashboard text (async)"""
+    all_users = await db.get_all_users()
+
+    total_users = len(all_users)
+    active_users = sum(1 for u in all_users if not u["is_disabled"])
     disabled_users = total_users - active_users
-    voice_enabled_users = sum(1 for a in user_analytics.values() if a["voice_replies_enabled"])
-    total_voice_responses = sum(a["voice_responses_sent"] for a in user_analytics.values())
+    voice_enabled_users = sum(1 for u in all_users if u["voice_replies_enabled"])
+    total_voice_responses = sum(u["voice_responses_sent"] for u in all_users)
 
     text = (
         "🔧 Admin Dashboard\n\n"
@@ -694,18 +657,17 @@ def format_admin_dashboard() -> str:
         "User Summary:\n"
     )
 
-    for user_id, analytics in sorted(user_analytics.items()):
-        profile = analytics["user_profile"]
+    for user_data in sorted(all_users, key=lambda x: x["user_id"]):
+        user_id = user_data["user_id"]
+        profile = user_data["user_profile"]
         raw_username = profile["username"] or profile["first_name"] or f"User {user_id}"
-        # Limit button text length to prevent callback_data issues
-        button_username = raw_username[:15] + "..." if len(raw_username) > 15 else raw_username
         username = escape_markdown(raw_username)
-        status = "🔴 Disabled" if analytics["is_disabled"] else "🟢 Active"
-        prefs = escape_markdown(", ".join(analytics["preferred_targets"]))
-        last_activity = analytics["last_activity"].strftime("%Y-%m-%d %H:%M")
-        msg_count = analytics["message_count"]
-        voice_replies = "🎤 ON" if analytics["voice_replies_enabled"] else "🎤 OFF"
-        voice_sent = analytics["voice_responses_sent"]
+        status = "🔴 Disabled" if user_data["is_disabled"] else "🟢 Active"
+        prefs = escape_markdown(", ".join(user_data["preferred_targets"]))
+        last_activity = user_data["last_activity"].strftime("%Y-%m-%d %H:%M")
+        msg_count = user_data["message_count"]
+        voice_replies = "🎤 ON" if user_data["voice_replies_enabled"] else "🎤 OFF"
+        voice_sent = user_data["voice_responses_sent"]
 
         text += (
             f"\n{username} ({user_id})\n"
@@ -722,7 +684,7 @@ async def process_translation(message: Message, text: str, source_type: str = "t
     user_id = message.from_user.id
 
     # Check if user is disabled
-    if is_user_disabled(user_id):
+    if await is_user_disabled(user_id):
         audit_logger.warning(f"BLOCKED_ACCESS: Disabled user {user_id} attempted translation: {text[:50]}...")
         await message.reply(
             "❌ Access disabled. Contact support if you believe this is an error."
@@ -738,7 +700,7 @@ async def process_translation(message: Message, text: str, source_type: str = "t
         return
 
     # Update user activity
-    update_user_activity(user_id, message.from_user)
+    await update_user_activity(user_id, message.from_user)
 
     source_lang = detect_language(text)
     if not source_lang:
@@ -755,7 +717,7 @@ async def process_translation(message: Message, text: str, source_type: str = "t
         )
         return
 
-    target_langs = get_user_preferences(message.from_user.id)
+    target_langs = await get_user_preferences(message.from_user.id)
     if source_lang in target_langs:
         target_langs = target_langs - {source_lang}
 
@@ -800,7 +762,7 @@ async def process_translation(message: Message, text: str, source_type: str = "t
             await message.reply(response)
 
         # Generate and send voice response if enabled (PARALLEL TTS)
-        if is_voice_replies_enabled(user_id) and translations:
+        if await is_voice_replies_enabled(user_id) and translations:
             await generate_parallel_voice_responses(message, user_id, translations)
 
     except Exception as e:
@@ -817,7 +779,7 @@ async def start_handler(message: Message):
     user_id = message.from_user.id
 
     # Check if user is disabled
-    if is_user_disabled(user_id):
+    if await is_user_disabled(user_id):
         audit_logger.warning(f"BLOCKED_ACCESS: Disabled user {user_id} attempted /start")
         await message.reply(
             "❌ Access disabled. Contact support if you believe this is an error."
@@ -825,7 +787,7 @@ async def start_handler(message: Message):
         return
 
     # Update user activity
-    update_user_activity(user_id, message.from_user)
+    await update_user_activity(user_id, message.from_user)
 
     text = (
         "🌍 **Translation Bot**\n\n"
@@ -852,7 +814,7 @@ async def menu_handler(message: Message):
     user_id = message.from_user.id
 
     # Check if user is disabled
-    if is_user_disabled(user_id):
+    if await is_user_disabled(user_id):
         audit_logger.warning(f"BLOCKED_ACCESS: Disabled user {user_id} attempted /menu")
         await message.reply(
             "❌ Access disabled. Contact support if you believe this is an error."
@@ -860,9 +822,9 @@ async def menu_handler(message: Message):
         return
 
     # Update user activity
-    update_user_activity(user_id, message.from_user)
+    await update_user_activity(user_id, message.from_user)
 
-    prefs = get_user_preferences(user_id)
+    prefs = await get_user_preferences(user_id)
     enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in prefs]
 
     text = (
@@ -872,7 +834,7 @@ async def menu_handler(message: Message):
     )
 
     try:
-        keyboard = build_preferences_keyboard(user_id)
+        keyboard = await build_preferences_keyboard(user_id)
     except Exception as e:
         logger.error(f"Error building preferences keyboard: {e}")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Settings", callback_data="menu")]])
@@ -891,12 +853,12 @@ async def admin_handler(message: Message):
     audit_logger.info(f"ADMIN_ACCESS: Admin {user_id} accessed dashboard")
 
     try:
-        text = format_admin_dashboard()
+        text = await format_admin_dashboard()
     except Exception as e:
         logger.error(f"Error formatting admin dashboard: {e}")
         text = "❌ Error loading dashboard data"
     try:
-        keyboard = build_admin_dashboard_keyboard()
+        keyboard = await build_admin_dashboard_keyboard()
     except Exception as e:
         logger.error(f"Error building admin keyboard: {e}")
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔄 Refresh", callback_data="admin_refresh")]])
@@ -909,14 +871,14 @@ async def show_menu_callback(callback: CallbackQuery):
     user_id = callback.from_user.id
 
     # Check if user is disabled
-    if is_user_disabled(user_id):
+    if await is_user_disabled(user_id):
         await callback.answer("❌ Access disabled", show_alert=True)
         return
 
     # Update user activity
-    update_user_activity(user_id, callback.from_user)
+    await update_user_activity(user_id, callback.from_user)
 
-    prefs = get_user_preferences(user_id)
+    prefs = await get_user_preferences(user_id)
     enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in prefs]
 
     text = (
@@ -925,7 +887,7 @@ async def show_menu_callback(callback: CallbackQuery):
         "Select languages to enable/disable for translation:"
     )
 
-    keyboard = build_preferences_keyboard(user_id)
+    keyboard = await build_preferences_keyboard(user_id)
 
     await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
     await callback.answer()
@@ -937,17 +899,17 @@ async def toggle_preference(callback: CallbackQuery):
     toggle_data = callback.data.split("_", 1)[1]  # Get everything after "toggle_"
 
     # Check if user is disabled
-    if is_user_disabled(user_id):
+    if await is_user_disabled(user_id):
         await callback.answer("❌ Access disabled", show_alert=True)
         return
 
     # Update user activity
-    update_user_activity(user_id, callback.from_user)
+    await update_user_activity(user_id, callback.from_user)
 
     if toggle_data == "voice_replies":
         # Handle voice replies toggle
-        voice_enabled = toggle_voice_replies(user_id)
-        prefs = get_user_preferences(user_id)
+        voice_enabled = await toggle_voice_replies(user_id)
+        prefs = await get_user_preferences(user_id)
         enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in prefs]
 
         status_msg = "enabled" if voice_enabled else "disabled"
@@ -959,11 +921,11 @@ async def toggle_preference(callback: CallbackQuery):
             await callback.answer("Invalid language")
             return
 
-        prefs = update_user_preference(user_id, lang_code)
+        prefs = await update_user_preference(user_id, lang_code)
         enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in prefs]
         callback_msg = f"✅ Updated preferences: {', '.join(enabled)}"
 
-    keyboard = build_preferences_keyboard(user_id)
+    keyboard = await build_preferences_keyboard(user_id)
 
     text = (
         "⚙️ **Translation Preferences**\n\n"
@@ -988,8 +950,8 @@ async def admin_callback(callback: CallbackQuery):
 
     if action == "refresh":
         audit_logger.info(f"ADMIN_ACTION: Admin {user_id} refreshed dashboard")
-        text = format_admin_dashboard()
-        keyboard = build_admin_dashboard_keyboard()
+        text = await format_admin_dashboard()
+        keyboard = await build_admin_dashboard_keyboard()
         try:
             await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
             await callback.answer("✅ Dashboard refreshed")
@@ -1004,14 +966,14 @@ async def admin_callback(callback: CallbackQuery):
         disabled = action == "disable"
 
         # Update user status
-        success = set_user_disabled(target_user_id, disabled)
+        success = await set_user_disabled(target_user_id, disabled)
         action_text = "disabled" if disabled else "enabled"
 
         audit_logger.info(f"ADMIN_ACTION: Admin {user_id} {action_text} user {target_user_id}")
 
         # Refresh dashboard
-        text = format_admin_dashboard()
-        keyboard = build_admin_dashboard_keyboard()
+        text = await format_admin_dashboard()
+        keyboard = await build_admin_dashboard_keyboard()
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
         await callback.answer(f"✅ User {target_user_id} {action_text}")
 
@@ -1023,7 +985,7 @@ async def voice_handler(message: Message):
     user_id = message.from_user.id
 
     # Check if user is disabled
-    if is_user_disabled(user_id):
+    if await is_user_disabled(user_id):
         audit_logger.warning(f"BLOCKED_ACCESS: Disabled user {user_id} attempted voice message")
         await message.reply(
             "❌ Access disabled. Contact support if you believe this is an error."
@@ -1115,7 +1077,7 @@ async def text_handler(message: Message):
     text = message.text.strip()
 
     # Check if user is disabled
-    if is_user_disabled(user_id):
+    if await is_user_disabled(user_id):
         audit_logger.warning(f"BLOCKED_ACCESS: Disabled user {user_id} attempted text message: {text[:50]}...")
         await message.reply(
             "❌ Access disabled. Contact support if you believe this is an error."

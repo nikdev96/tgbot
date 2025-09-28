@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "telegram-translator-bot"
 version = "0.1.0"
-description = "A Telegram bot that translates messages between Russian, English, and Thai"
+description = "A Telegram bot that translates messages between 6 languages: Russian, English, Thai, Japanese, Korean, and Vietnamese"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
 packages = [{include = "src"}]
@@ -14,6 +14,7 @@ langdetect = "^1.0.9"
 python-dotenv = "^1.0.0"
 pydub = "^0.25.1"
 PyYAML = "^6.0.0"
+cachetools = "^5.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.0"

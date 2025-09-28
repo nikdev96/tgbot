@@ -6,7 +6,7 @@ import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional, Set
+from typing import Dict, Optional, Set, List
 from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
@@ -155,8 +155,15 @@ class DatabaseManager:
                 analytics["preferred_targets"] = preferences
                 return analytics
             else:
-                # Create new user
-                default_preferences = {"ru", "en", "th", "ja", "ko", "vi"}  # Default supported languages
+                # Create new user - check if preferences already exist
+                prefs_cursor = conn.execute(
+                    "SELECT language_code FROM user_language_preferences WHERE user_id = ?",
+                    (user_id,)
+                )
+                existing_preferences = {prow["language_code"] for prow in prefs_cursor.fetchall()}
+
+                # Use existing preferences if any, otherwise default
+                preferences = existing_preferences if existing_preferences else {"ru", "en", "th", "ja", "ko", "vi"}
 
                 analytics = {
                     "is_disabled": False,
@@ -164,7 +171,7 @@ class DatabaseManager:
                     "message_count": 0,
                     "voice_responses_sent": 0,
                     "last_activity": datetime.now(),
-                    "preferred_targets": default_preferences,
+                    "preferred_targets": preferences,
                     "user_profile": user_profile or {
                         "username": None,
                         "first_name": None,
@@ -175,16 +182,17 @@ class DatabaseManager:
                 # Insert new user
                 profile = analytics["user_profile"]
                 conn.execute("""
-                    INSERT INTO users (id, username, first_name, last_name)
+                    INSERT OR IGNORE INTO users (id, username, first_name, last_name)
                     VALUES (?, ?, ?, ?)
                 """, (user_id, profile["username"], profile["first_name"], profile["last_name"]))
 
-                # Insert default preferences
-                for lang_code in default_preferences:
-                    conn.execute(
-                        "INSERT OR IGNORE INTO user_language_preferences (user_id, language_code) VALUES (?, ?)",
-                        (user_id, lang_code)
-                    )
+                # Insert default preferences only if no existing preferences
+                if not existing_preferences:
+                    for lang_code in preferences:
+                        conn.execute(
+                            "INSERT OR IGNORE INTO user_language_preferences (user_id, language_code) VALUES (?, ?)",
+                            (user_id, lang_code)
+                        )
 
                 conn.commit()
                 return analytics
@@ -273,6 +281,47 @@ class DatabaseManager:
                     )
 
             conn.commit()
+        finally:
+            conn.close()
+
+    async def get_all_users(self) -> List[Dict]:
+        """Get all users with their analytics data"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._get_all_users_sync
+        )
+
+    def _get_all_users_sync(self) -> List[Dict]:
+        """Synchronous version of get_all_users"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute("""
+                SELECT u.*, GROUP_CONCAT(ulp.language_code) as preferences
+                FROM users u
+                LEFT JOIN user_language_preferences ulp ON u.id = ulp.user_id
+                GROUP BY u.id
+                ORDER BY u.last_activity DESC
+            """)
+
+            users = []
+            for row in cursor.fetchall():
+                preferences = set(row["preferences"].split(",")) if row["preferences"] else set()
+                user_data = {
+                    "user_id": row["id"],
+                    "is_disabled": bool(row["is_disabled"]),
+                    "voice_replies_enabled": bool(row["voice_replies_enabled"]),
+                    "message_count": row["message_count"],
+                    "voice_responses_sent": row["voice_responses_sent"],
+                    "last_activity": datetime.fromisoformat(row["last_activity"]) if row["last_activity"] else datetime.now(),
+                    "created_at": datetime.fromisoformat(row["created_at"]) if row["created_at"] else datetime.now(),
+                    "user_profile": {
+                        "username": row["username"],
+                        "first_name": row["first_name"],
+                        "last_name": row["last_name"],
+                    },
+                    "preferred_targets": preferences
+                }
+                users.append(user_data)
+            return users
         finally:
             conn.close()
 
