@@ -1,0 +1,62 @@
+# Production configuration for Telegram Translation Bot
+app:
+  name: "Translation Bot"
+  version: "2.1.0"
+  environment: "production"
+
+# Audio processing settings
+audio:
+  max_duration_seconds: 600  # 10 minutes
+  input_sample_rate: 16000   # Optimal for Whisper
+  output_sample_rate: 48000  # Optimal for Telegram voice
+  temp_cleanup_timeout: 30   # Seconds to wait before force cleanup
+
+# Text-to-Speech settings
+tts:
+  max_characters: 500
+  timeout_seconds: 30
+  voice: "alloy"  # Options: alloy, echo, fable, onyx, nova, shimmer
+  model: "tts-1"  # Options: tts-1, tts-1-hd
+  speed: 1.0      # Speech speed (0.25 to 4.0)
+
+# Translation settings
+translation:
+  max_retries: 3
+  retry_delay_base: 2        # Exponential backoff base (seconds)
+  display_truncate_length: 100
+  timeout_seconds: 30
+  max_input_characters: 2000 # Maximum input text length for translation
+  max_tokens: 500           # OpenAI API max tokens
+
+# Rate limiting
+rate_limits:
+  enabled: true
+  messages_per_minute: 10
+  voice_messages_per_hour: 20
+  admin_bypass: true
+
+# Database settings
+database:
+  path: "data/translator_bot.db"
+  backup_enabled: true
+  backup_interval_hours: 24
+  connection_timeout: 30
+
+# Logging settings
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  audit_enabled: true
+  max_log_size_mb: 50
+  backup_count: 5
+
+# OpenAI API settings
+openai:
+  timeout_seconds: 30
+  max_retries: 3
+  model: "gpt-4o"  # Default translation model
+
+# Security settings
+security:
+  max_users: 1000            # Maximum number of users
+  session_cleanup_hours: 72  # Clean inactive sessions
+  admin_session_timeout: 60  # Admin session timeout (minutes)

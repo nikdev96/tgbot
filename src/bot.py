@@ -5,6 +5,8 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Set, Optional, List
+from cachetools import TTLCache
+import hashlib
 
 
 import re
@@ -15,10 +17,13 @@ from dotenv import load_dotenv
 from langdetect import detect, LangDetectException
 from openai import AsyncOpenAI
 
+# Load environment variables
 load_dotenv()
 
+# Configure logging with proper level
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
@@ -50,26 +55,48 @@ bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
+# Load configuration
+from .config import load_config
+config = load_config()
+
+# Initialize database manager
+from .storage.database import DatabaseManager
+db = DatabaseManager(config.database.path)
+
+# Initialize response cache (TTL: 1 hour)
+translation_cache = TTLCache(maxsize=1000, ttl=3600)
+tts_cache = TTLCache(maxsize=500, ttl=1800)  # 30 min for audio
+
 SUPPORTED_LANGUAGES = {
     "ru": {"name": "Russian", "flag": "🇷🇺"},
     "en": {"name": "English", "flag": "🇺🇸"},
     "th": {"name": "Thai", "flag": "🇹🇭"},
     "ja": {"name": "Japanese", "flag": "🇯🇵"},
-    "ko": {"name": "Korean", "flag": "🇰🇷"}
+    "ko": {"name": "Korean", "flag": "🇰🇷"},
+    "vi": {"name": "Vietnamese", "flag": "🇻🇳"}
 }
 
-# TODO: Replace with persistent storage (database/redis/SQLite)
+# Legacy in-memory storage (deprecated - use database)
 user_preferences: Dict[int, Set[str]] = {}
-
-# User analytics storage - TODO: Move to persistent storage (SQLite/Redis)
 user_analytics: Dict[int, Dict] = {}
+
+async def get_user_analytics_async(user_id: int, user: Optional[User] = None) -> Dict:
+    """Get or create user analytics entry from database"""
+    user_profile = None
+    if user:
+        user_profile = {
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+        }
+    return await db.get_user_analytics(user_id, user_profile)
 
 def get_user_analytics(user_id: int, user: Optional[User] = None) -> Dict:
     """Get or create user analytics entry"""
     if user_id not in user_analytics:
         user_analytics[user_id] = {
             "is_disabled": False,
-            "preferred_targets": {"en"},  # Only English enabled by default
+            "preferred_targets": set(SUPPORTED_LANGUAGES.keys()),  # All languages enabled by default
             "voice_replies_enabled": False,
             "message_count": 0,
             "voice_responses_sent": 0,
@@ -131,10 +158,28 @@ def increment_voice_responses(user_id: int):
     analytics = get_user_analytics(user_id)
     analytics["voice_responses_sent"] += 1
 
+async def get_user_preferences_async(user_id: int) -> Set[str]:
+    """Get user's enabled translation languages from database"""
+    return await db.get_user_preferences(user_id)
+
+async def update_user_preference_async(user_id: int, lang_code: str) -> Set[str]:
+    """Toggle language preference for user in database"""
+    prefs = await get_user_preferences_async(user_id)
+    if lang_code in prefs:
+        prefs.discard(lang_code)
+    else:
+        prefs.add(lang_code)
+
+    if not prefs:
+        prefs.update(set(SUPPORTED_LANGUAGES.keys()))
+
+    await db.update_user_preferences(user_id, prefs)
+    return prefs
+
 def get_user_preferences(user_id: int) -> Set[str]:
     """Get user's enabled translation languages"""
     if user_id not in user_preferences:
-        user_preferences[user_id] = {"en"}  # Only English by default
+        user_preferences[user_id] = set(SUPPORTED_LANGUAGES.keys())  # All languages by default
 
     # Sync with analytics
     analytics = get_user_analytics(user_id)
@@ -186,25 +231,98 @@ def detect_language(text: str) -> str:
             if mapped_lang in SUPPORTED_LANGUAGES:
                 return mapped_lang
                 
-        # Additional heuristics for Cyrillic text
-        if re.search(r'[а-яё]', text.lower()):
-            # Contains Cyrillic characters - likely Russian
+        # Additional heuristics for specific languages
+
+        # Mixed language detection - if contains multiple scripts, return None
+        has_cyrillic = bool(re.search(r'[а-яё]', text.lower()))
+        has_latin = bool(re.search(r'[a-zA-Z]', text))
+        has_japanese = bool(re.search(r'[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]', text))
+        has_korean = bool(re.search(r'[가-힣\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]', text))
+        has_thai = bool(re.search(r'[\u0e00-\u0e7f]', text))
+        has_vietnamese = bool(re.search(r'[àáảãạầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộùúủũụừứửữựỳýỷỹỵđĐ]', text))
+
+        script_count = sum([has_cyrillic, has_latin, has_japanese, has_korean, has_thai, has_vietnamese])
+        if script_count > 1:
+            return None  # Mixed languages
+
+        # Cyrillic script - Russian
+        if has_cyrillic:
             return 'ru'
-            
-        # Additional heuristics for English
-        if re.search(r'^[a-zA-Z\s\.,\!\?\-]+$', text):
-            # Contains only Latin characters and common punctuation
-            return 'en'
-            
+
+        # Japanese: Hiragana, Katakana, Kanji
+        if has_japanese:
+            return 'ja'
+
+        # Korean: Hangul
+        if has_korean:
+            return 'ko'
+
+        # Thai: Thai script
+        if has_thai:
+            return 'th'
+
+        # Vietnamese: Latin with diacritics
+        if has_vietnamese:
+            return 'vi'
+
+        # English detection - more sophisticated approach
+        if has_latin:
+            # Common English words that should always be detected as English
+            common_english = [
+                'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+                'hello', 'hi', 'yes', 'no', 'ok', 'okay', 'thanks', 'please', 'sorry',
+                'what', 'where', 'when', 'why', 'how', 'who', 'which', 'that', 'this',
+                'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did',
+                'can', 'could', 'should', 'would', 'will', 'shall', 'may', 'might', 'must'
+            ]
+
+            # Check if text contains common English words
+            text_lower = text.lower()
+            words = re.findall(r'\b[a-z]+\b', text_lower)
+            if words and any(word in common_english for word in words):
+                return 'en'
+
+            # Check for English-like patterns
+            if re.search(r'\b(ing|ed|er|est|ly|tion|sion)\b', text_lower):
+                return 'en'
+
+            # If text contains only basic Latin chars + numbers + punctuation and is not obviously other language
+            if re.match(r'^[a-zA-Z0-9\s\.,\!\?\-@#$%&*()_+=\[\]{}|\\:";\'<>/`~]+$', text):
+                # Exclude common non-English patterns
+                if not re.search(r'\b(bon|jour|mer|ci|oui|non|je|tu|il|elle|nous|vous|ils|elles)\b', text_lower):
+                    if len(text.strip()) >= 2:  # At least 2 characters
+                        return 'en'
+
         return None
         
     except LangDetectException:
         logger.warning(f"Language detection failed for: {text[:50]}...")
-        # Fallback to heuristic detection
-        if re.search(r'[а-яё]', text.lower()):
+        # Fallback to heuristic detection using same logic as above
+        has_cyrillic = bool(re.search(r'[а-яё]', text.lower()))
+        has_latin = bool(re.search(r'[a-zA-Z]', text))
+        has_japanese = bool(re.search(r'[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]', text))
+        has_korean = bool(re.search(r'[가-힣\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]', text))
+        has_thai = bool(re.search(r'[\u0e00-\u0e7f]', text))
+        has_vietnamese = bool(re.search(r'[àáảãạầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộùúủũụừứửữựỳýỷỹỵđĐ]', text))
+
+        script_count = sum([has_cyrillic, has_latin, has_japanese, has_korean, has_thai, has_vietnamese])
+        if script_count > 1:
+            return None
+
+        if has_cyrillic:
             return 'ru'
-        elif re.search(r'^[a-zA-Z\s\.,\!\?\-]+$', text):
-            return 'en'
+        elif has_japanese:
+            return 'ja'
+        elif has_korean:
+            return 'ko'
+        elif has_thai:
+            return 'th'
+        elif has_vietnamese:
+            return 'vi'
+        elif has_latin and len(text.strip()) >= 2:
+            # Simple fallback for English - only for basic text
+            if re.match(r'^[a-zA-Z0-9\s\.,\!\?\-]+$', text):
+                return 'en'
         return None
 
 async def download_and_convert_audio(file_path: str, output_format: str = "wav") -> Path:
@@ -227,16 +345,25 @@ async def download_and_convert_audio(file_path: str, output_format: str = "wav")
 
         # Convert to target format using pydub
         audio = AudioSegment.from_file(original_path)
-        converted_path = temp_dir / f"converted.{output_format}"
 
-        # Export with optimal settings for Whisper
-        audio.export(
-            converted_path,
-            format=output_format,
-            parameters=["-ac", "1", "-ar", "16000"]  # mono, 16kHz
-        )
+        # Optimize: skip conversion if already in optimal format
+        if (audio.channels == 1 and
+            audio.frame_rate == config.audio.input_sample_rate and
+            output_format == "wav"):
+            # Audio is already optimal, just rename
+            converted_path = temp_dir / f"converted.{output_format}"
+            original_path.rename(converted_path)
+            logger.info(f"Audio already optimal, skipped conversion: {converted_path}")
+        else:
+            converted_path = temp_dir / f"converted.{output_format}"
+            # Export with optimal settings for Whisper
+            audio.export(
+                converted_path,
+                format=output_format,
+                parameters=["-ac", "1", "-ar", str(config.audio.input_sample_rate)]  # mono, configured rate
+            )
+            logger.info(f"Audio converted: {original_path} -> {converted_path}")
 
-        logger.info(f"Audio converted: {original_path} -> {converted_path}")
         return converted_path
 
     except Exception as e:
@@ -248,7 +375,7 @@ async def download_and_convert_audio(file_path: str, output_format: str = "wav")
 
 async def transcribe_audio(audio_path: Path) -> str:
     """Transcribe audio using OpenAI Whisper with retry logic"""
-    for attempt in range(3):
+    for attempt in range(config.openai.max_retries):
         try:
             with open(audio_path, "rb") as audio_file:
                 transcription = await openai_client.audio.transcriptions.create(
@@ -268,9 +395,22 @@ async def transcribe_audio(audio_path: Path) -> str:
 
 async def generate_tts_audio(text: str) -> Optional[Path]:
     """Generate TTS audio using OpenAI Audio API with retry logic"""
-    if len(text) > 500:
-        logger.warning(f"TTS text too long ({len(text)} chars), skipping")
+    if len(text) > config.tts.max_characters:
+        logger.warning(f"TTS text too long ({len(text)} chars), max is {config.tts.max_characters}")
         return None
+
+    # Check TTS cache first
+    tts_cache_key = hashlib.md5(f"{text}:{config.tts.voice}:{config.tts.speed}".encode()).hexdigest()
+    if tts_cache_key in tts_cache:
+        logger.info(f"TTS cache hit for: {text[:50]}...")
+        # Return cached file path (copy to new temp location)
+        cached_path = tts_cache[tts_cache_key]
+        if cached_path and cached_path.exists():
+            temp_dir = Path(tempfile.mkdtemp())
+            new_path = temp_dir / cached_path.name
+            import shutil
+            shutil.copy2(cached_path, new_path)
+            return new_path
 
     temp_dir = Path(tempfile.mkdtemp())
     mp3_path = temp_dir / "tts_output.mp3"
@@ -278,16 +418,16 @@ async def generate_tts_audio(text: str) -> Optional[Path]:
 
     try:
         # Generate TTS audio with OpenAI
-        for attempt in range(3):
+        for attempt in range(config.openai.max_retries):
             try:
                 logger.info(f"Generating TTS audio (attempt {attempt + 1}) for text: {text[:50]}...")
                 tts_start = datetime.now()
 
                 response = await openai_client.audio.speech.create(
-                    model=OPENAI_TTS_MODEL,
-                    voice=OPENAI_TTS_VOICE,
+                    model=config.tts.model,
+                    voice=config.tts.voice,
                     input=text,
-                    speed=1.0  # Normal speech speed (0.25 to 4.0, default 1.0)
+                    speed=config.tts.speed
                 )
 
                 tts_duration = (datetime.now() - tts_start).total_seconds()
@@ -314,15 +454,20 @@ async def generate_tts_audio(text: str) -> Optional[Path]:
 
         audio = AudioSegment.from_mp3(mp3_path)
 
-        # Export as OGG/Opus at 48kHz mono for Telegram voice messages
+        # Export as OGG/Opus for Telegram voice messages
         audio.export(
             ogg_path,
             format="ogg",
             codec="libopus",
-            parameters=["-ac", "1", "-ar", "48000"]  # mono, 48kHz
+            parameters=["-ac", "1", "-ar", str(config.audio.output_sample_rate)]  # mono, configured rate
         )
 
         logger.info(f"TTS audio converted: {mp3_path} -> {ogg_path}")
+
+        # Cache successful TTS result
+        tts_cache[tts_cache_key] = ogg_path
+        logger.info(f"TTS cached for: {text[:50]}...")
+
         return ogg_path
 
     except Exception as e:
@@ -332,6 +477,90 @@ async def generate_tts_audio(text: str) -> Optional[Path]:
         shutil.rmtree(temp_dir, ignore_errors=True)
         return None
 
+async def generate_parallel_voice_responses(message: Message, user_id: int, translations: Dict[str, str]):
+    """Generate TTS responses in parallel for much faster processing"""
+    import shutil
+    from aiogram.types import FSInputFile
+
+    # Filter out too long translations
+    valid_translations = {}
+    for lang_code, translation in translations.items():
+        if len(translation) > config.tts.max_characters:
+            lang_info = SUPPORTED_LANGUAGES[lang_code]
+            await message.reply(f"🎤 {lang_info['flag']} Голосовой ответ на {lang_info['name']} слишком длинный.")
+        else:
+            valid_translations[lang_code] = translation
+
+    if not valid_translations:
+        return
+
+    # Generate all TTS audio files in parallel
+    async def generate_single_tts(lang_code: str, translation: str):
+        try:
+            tts_audio_path = await generate_tts_audio(translation)
+            return lang_code, tts_audio_path, None
+        except Exception as e:
+            return lang_code, None, e
+
+    # Start all TTS generations in parallel
+    tts_tasks = [
+        generate_single_tts(lang_code, translation)
+        for lang_code, translation in valid_translations.items()
+    ]
+
+    # Wait for all TTS generations to complete
+    tts_results = await asyncio.gather(*tts_tasks, return_exceptions=True)
+
+    # Send voice messages and cleanup
+    temp_dirs_to_cleanup = []
+    successful_responses = 0
+
+    for result in tts_results:
+        if isinstance(result, Exception):
+            logger.error(f"TTS parallel generation error: {result}")
+            continue
+
+        lang_code, tts_audio_path, error = result
+
+        if error:
+            lang_info = SUPPORTED_LANGUAGES[lang_code]
+            logger.error(f"TTS error for user {user_id} in {lang_code}: {error}")
+            await message.reply(f"🎤 Ошибка создания голосового ответа на {lang_info['name']}.")
+            continue
+
+        if tts_audio_path:
+            try:
+                temp_dirs_to_cleanup.append(tts_audio_path.parent)
+
+                # Create caption with language name
+                lang_info = SUPPORTED_LANGUAGES[lang_code]
+                caption = f"{lang_info['flag']} {lang_info['name']}"
+
+                # Send voice message
+                voice_input = FSInputFile(tts_audio_path, filename=f"voice_{lang_code}.ogg")
+                await message.reply_voice(voice_input, caption=caption)
+
+                successful_responses += 1
+                logger.info(f"Voice response sent to user {user_id} in {lang_code}")
+
+            except Exception as e:
+                lang_info = SUPPORTED_LANGUAGES[lang_code]
+                logger.error(f"Voice message send error for {lang_code}: {e}")
+                await message.reply(f"🎤 Ошибка отправки голосового ответа на {lang_info['name']}.")
+
+    # Cleanup all temp directories
+    for temp_dir in temp_dirs_to_cleanup:
+        if temp_dir and temp_dir.exists():
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception as e:
+                logger.warning(f"Failed to cleanup TTS temp directory {temp_dir}: {e}")
+
+    # Update analytics for successful responses
+    if successful_responses > 0:
+        increment_voice_responses(user_id)
+        logger.info(f"Parallel voice responses completed for user {user_id}: {successful_responses} sent")
+
 async def translate_text(text: str, source_lang: str, target_langs: Set[str]) -> Dict[str, str]:
     """Translate text to target languages with retry logic"""
     if source_lang in target_langs:
@@ -339,6 +568,12 @@ async def translate_text(text: str, source_lang: str, target_langs: Set[str]) ->
 
     if not target_langs:
         return {}
+
+    # Check cache first
+    cache_key = hashlib.md5(f"{text}:{source_lang}:{sorted(target_langs)}".encode()).hexdigest()
+    if cache_key in translation_cache:
+        logger.info(f"Cache hit for translation: {text[:50]}...")
+        return translation_cache[cache_key]
 
     target_names = [SUPPORTED_LANGUAGES[lang]["name"] for lang in target_langs]
     prompt = f"""Translate this {SUPPORTED_LANGUAGES[source_lang]["name"]} text into {', '.join(target_names)}.
@@ -348,12 +583,12 @@ Provide only the translations, one per line:
 
 Text: {text}"""
 
-    for attempt in range(3):
+    for attempt in range(config.translation.max_retries):
         try:
             response = await openai_client.chat.completions.create(
-                model=OPENAI_MODEL,
+                model=config.openai.model,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=500,
+                max_tokens=config.translation.max_tokens,
                 temperature=0.3
             )
 
@@ -371,12 +606,15 @@ Text: {text}"""
                             translations[code] = translation
                             break
 
+            # Cache successful translations
+            translation_cache[cache_key] = translations
+            logger.info(f"Translation cached for: {text[:50]}...")
             return translations
 
         except Exception as e:
             logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
-            if attempt < 2:
-                await asyncio.sleep(2 ** attempt)
+            if attempt < config.translation.max_retries - 1:
+                await asyncio.sleep(config.translation.retry_delay_base ** attempt)
                 continue
             return {}
 
@@ -491,17 +729,29 @@ async def process_translation(message: Message, text: str, source_type: str = "t
         )
         return
 
+    # Check input text length
+    if len(text) > config.translation.max_input_characters:
+        max_chars = config.translation.max_input_characters
+        await message.reply(
+            f"❌ Text too long ({len(text)} characters). Maximum allowed: {max_chars} characters."
+        )
+        return
+
     # Update user activity
     update_user_activity(user_id, message.from_user)
 
     source_lang = detect_language(text)
     if not source_lang:
         await message.reply(
-            "❌ Couldn't detect the language.\n\n"
-            "Supported languages:\n"
+            "❌ Language not supported or couldn't be detected.\n\n"
+            "**Supported languages:**\n"
             "🇷🇺 Russian: \"Привет, как дела?\"\n"
             "🇺🇸 English: \"Hello, how are you?\"\n"
-            "🇹🇭 Thai: \"สวัสดี เป็นอย่างไรบ้าง\""
+            "🇹🇭 Thai: \"สวัสดี เป็นอย่างไรบ้าง\"\n"
+            "🇯🇵 Japanese: \"こんにちは、元気ですか？\"\n"
+            "🇰🇷 Korean: \"안녕하세요, 어떻게 지내세요?\"\n\n"
+            "_Note: French, German, Spanish and other languages are not yet supported._",
+            parse_mode="Markdown"
         )
         return
 
@@ -514,9 +764,17 @@ async def process_translation(message: Message, text: str, source_type: str = "t
         target_langs = all_langs - {source_lang}
 
     try:
+        # Send instant status message
         status_msg = await message.reply("🔄 Translating...")
+
+        # Start translation
         translations = await translate_text(text, source_lang, target_langs)
-        await status_msg.delete()
+
+        # Delete status message
+        try:
+            await status_msg.delete()
+        except:
+            pass  # Ignore if deletion fails
 
         if not translations:
             await message.reply("❌ Translation failed. Please try again.")
@@ -526,10 +784,12 @@ async def process_translation(message: Message, text: str, source_type: str = "t
         if source_type == "voice":
             source_info = SUPPORTED_LANGUAGES[source_lang]
             # Truncate long transcriptions for display
-            display_text = text if len(text) <= 100 else text[:97] + "..."
+            max_len = config.translation.display_truncate_length
+            display_text = text if len(text) <= max_len else text[:max_len-3] + "..."
+            escaped_text = escape_markdown(display_text)
             await message.reply(
                 f"🎤 {source_info['flag']} Transcribed ({source_info['name']}):\n"
-                f"_{display_text}_",
+                f"_{escaped_text}_",
                 parse_mode="Markdown"
             )
 
@@ -539,51 +799,9 @@ async def process_translation(message: Message, text: str, source_type: str = "t
             response = f"{lang_info['flag']} {lang_info['name']}:\n{translation}"
             await message.reply(response)
 
-        # Generate and send voice response if enabled
+        # Generate and send voice response if enabled (PARALLEL TTS)
         if is_voice_replies_enabled(user_id) and translations:
-            import shutil
-            from aiogram.types import FSInputFile
-
-            # Send separate voice message for each language
-            for lang_code, translation in translations.items():
-                if len(translation) > 500:
-                    lang_info = SUPPORTED_LANGUAGES[lang_code]
-                    await message.reply(f"🎤 {lang_info['flag']} Голосовой ответ на {lang_info['name']} слишком длинный.")
-                    continue
-
-                temp_dir = None
-                try:
-                    # Generate TTS audio for this language
-                    tts_audio_path = await generate_tts_audio(translation)
-                    if tts_audio_path:
-                        temp_dir = tts_audio_path.parent
-
-                        # Create caption with language name
-                        lang_info = SUPPORTED_LANGUAGES[lang_code]
-                        caption = f"{lang_info['flag']} {lang_info['name']}"
-
-                        # Send voice message
-                        voice_input = FSInputFile(tts_audio_path, filename=f"voice_{lang_code}.ogg")
-                        await message.reply_voice(voice_input, caption=caption)
-
-                        logger.info(f"Voice response sent to user {user_id} in {lang_code}")
-
-                except Exception as e:
-                    lang_info = SUPPORTED_LANGUAGES[lang_code]
-                    logger.error(f"TTS error for user {user_id} in {lang_code}: {e}")
-                    await message.reply(f"🎤 Ошибка создания голосового ответа на {lang_info['name']}.")
-                finally:
-                    # Cleanup TTS temp files
-                    if temp_dir and temp_dir.exists():
-                        try:
-                            shutil.rmtree(temp_dir, ignore_errors=True)
-                        except Exception as e:
-                            logger.warning(f"Failed to cleanup TTS temp directory {temp_dir}: {e}")
-
-            # Update analytics once for all voice responses
-            if translations:
-                increment_voice_responses(user_id)
-                logger.info(f"Voice responses completed for user {user_id}")
+            await generate_parallel_voice_responses(message, user_id, translations)
 
     except Exception as e:
         logger.error(f"Translation error: {e}")
@@ -611,16 +829,22 @@ async def start_handler(message: Message):
 
     text = (
         "🌍 **Translation Bot**\n\n"
-        "I translate between Russian 🇷🇺, English 🇺🇸, and Thai 🇹🇭!\n\n"
+        "I translate between 6 languages: 🇷🇺 Russian, 🇺🇸 English, 🇹🇭 Thai, 🇯🇵 Japanese, 🇰🇷 Korean, and 🇻🇳 Vietnamese!\n\n"
         "**How it works:**\n"
         "• Send text or voice messages in supported languages\n"
         "• I'll detect the language and translate to your enabled targets\n"
         "• Use /menu to customize which languages you want\n\n"
         "**Voice messages:** Send voice notes and I'll transcribe + translate!\n\n"
         "**Default:** I translate to all other languages\n"
-        "Try sending: \"Hello, how are you?\""
+        "Try sending: \"Hello, how are you?\" or \"こんにちは\" or \"Привет!\" or \"Xin chào!\""
     )
-    await message.reply(text, parse_mode="Markdown")
+
+    # Add quick menu button
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚙️ Menu", callback_data="show_menu")]
+    ])
+
+    await message.reply(text, parse_mode="Markdown", reply_markup=keyboard)
 
 @dp.message(Command("menu"))
 async def menu_handler(message: Message):
@@ -678,6 +902,33 @@ async def admin_handler(message: Message):
         keyboard = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔄 Refresh", callback_data="admin_refresh")]])
 
     await message.reply(text, reply_markup=keyboard)
+
+@dp.callback_query(F.data == "show_menu")
+async def show_menu_callback(callback: CallbackQuery):
+    """Handle show menu button press"""
+    user_id = callback.from_user.id
+
+    # Check if user is disabled
+    if is_user_disabled(user_id):
+        await callback.answer("❌ Access disabled", show_alert=True)
+        return
+
+    # Update user activity
+    update_user_activity(user_id, callback.from_user)
+
+    prefs = get_user_preferences(user_id)
+    enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in prefs]
+
+    text = (
+        "⚙️ **Language Preferences**\n\n"
+        f"**Currently enabled:** {', '.join(enabled) if enabled else 'None'}\n\n"
+        "Select languages to enable/disable for translation:"
+    )
+
+    keyboard = build_preferences_keyboard(user_id)
+
+    await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("toggle_"))
 async def toggle_preference(callback: CallbackQuery):
@@ -794,9 +1045,11 @@ async def voice_handler(message: Message):
             await status_msg.edit_text("❌ Unsupported audio format.")
             return
 
-        # Check duration (limit to 10 minutes)
-        if duration and duration > 600:
-            await status_msg.edit_text("❌ Audio too long. Please send messages under 10 minutes.")
+        # Check duration using config
+        max_duration = config.audio.max_duration_seconds
+        if duration and duration > max_duration:
+            minutes = max_duration // 60
+            await status_msg.edit_text(f"❌ Audio too long. Please send messages under {minutes} minutes.")
             return
 
         await status_msg.edit_text("🔄 Downloading audio...")
@@ -878,6 +1131,19 @@ async def text_handler(message: Message):
 async def main():
     """Start the bot"""
     logger.info("Starting Translation Bot with voice support...")
+
+    # Initialize database
+    try:
+        await db.init_db()
+        logger.info("Database initialized successfully")
+
+        # Add Vietnamese to existing users
+        await db.add_vietnamese_to_existing_users()
+        logger.info("Vietnamese language added to existing users")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        return
+
     try:
         await dp.start_polling(bot)
     except Exception as e:

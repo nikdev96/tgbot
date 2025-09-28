@@ -5,11 +5,11 @@
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-orange.svg)](https://openai.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A smart Telegram bot that translates text and voice messages between **Russian** 🇷🇺, **English** 🇺🇸, **Thai** 🇹🇭, **Japanese** 🇯🇵, and **Korean** 🇰🇷 with customizable user preferences using OpenAI's latest models.
+A smart Telegram bot that translates text and voice messages between **Russian** 🇷🇺, **English** 🇺🇸, **Thai** 🇹🇭, **Japanese** 🇯🇵, **Korean** 🇰🇷, and **Vietnamese** 🇻🇳 with customizable user preferences using OpenAI's latest models.
 
 ## ✨ Features
 
-- 🎯 **Smart Language Detection** - Automatically identifies Russian, English, Thai, Japanese, and Korean
+- 🎯 **Smart Language Detection** - Automatically identifies Russian, English, Thai, Japanese, Korean, and Vietnamese
 - ⚙️ **User Preferences** - Customizable target languages via `/menu` command
 - 🔄 **Selective Translation** - Only translates to user-enabled languages
 - 🎤 **Voice Message Support** - Transcribes and translates voice notes using OpenAI Whisper
@@ -145,7 +145,7 @@ python -m src.bot
 ### Regular Users
 1. **Start**: Send `/start` for welcome message and instructions
 2. **Menu**: Use `/menu` to configure translation preferences
-3. **Text**: Send any text in Russian, English, Thai, Japanese, or Korean
+3. **Text**: Send any text in Russian, English, Thai, Japanese, Korean, or Vietnamese
 4. **Voice**: Send voice messages or audio files (up to 10 minutes)
 5. **Preferences**: Toggle target languages with ✅/❌ buttons (English enabled by default)
 6. **Voice Replies**: Toggle 🎤 Voice replies in `/menu` to receive TTS audio responses
@@ -389,6 +389,7 @@ async def voice_handler(message: Message):
 | Thai | `th` | 🇹🇭 |
 | Japanese | `ja` | 🇯🇵 |
 | Korean | `ko` | 🇰🇷 |
+| Vietnamese | `vi` | 🇻🇳 |
 
 ## 🔧 Troubleshooting
 
@@ -406,7 +407,7 @@ async def voice_handler(message: Message):
 
 **❌ Language detection issues**
 - Send longer text (minimum 5-10 words recommended)
-- Ensure text is in Russian, English, Thai, Japanese, or Korean
+- Ensure text is in Russian, English, Thai, Japanese, Korean, or Vietnamese
 - Mixed-language text may not detect properly
 
 **❌ Voice processing fails**
@@ -493,7 +494,21 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🆕 Latest Updates
 
-### v2.1.0 - Keyboard Fixes & Admin Dashboard Improvements (Sept 2024)
+### v2.1.0 - Major Performance & Language Updates (Sept 2025)
+
+**🚀 Performance Revolution:**
+- ✅ **60%+ faster voice processing** - Parallel TTS generation (22s → 8s)
+- ✅ **Response caching system** - TTL cache for translations & TTS
+- ✅ **Smart audio processing** with format optimization
+
+**🌍 Language & UX Expansion:**
+- ✅ **Vietnamese language support** - Added 🇻🇳 Vietnamese with advanced detection
+- ✅ **Quick menu button** - One-click access to language preferences
+
+**🏗️ Infrastructure & Reliability:**
+- ✅ **Production configuration system** with YAML files
+- ✅ **SQLite database integration** for persistent storage
+- ✅ **Enhanced language detection** for all 6 languages
 
 **🐛 Bug Fixes:**
 - ✅ Fixed missing buttons in admin dashboard (`/admin`)

@@ -23,6 +23,26 @@ class TestLanguageDetection:
         result = detect_language("สวัสดี เป็นอย่างไรบ้าง วันนี้")
         assert result == "th"
 
+    def test_detect_japanese(self):
+        result = detect_language("こんにちは、元気ですか？")
+        assert result == "ja"
+
+    def test_detect_korean(self):
+        result = detect_language("안녕하세요, 어떻게 지내세요?")
+        assert result == "ko"
+
+    def test_detect_short_japanese(self):
+        result = detect_language("はい")  # Short text
+        assert result == "ja"
+
+    def test_detect_short_korean(self):
+        result = detect_language("네")  # Short text
+        assert result == "ko"
+
+    def test_detect_short_thai(self):
+        result = detect_language("ใช่")  # Short text
+        assert result == "th"
+
     def test_unsupported_language(self):
         result = detect_language("Bonjour, comment allez-vous?")  # French
         assert result is None
@@ -38,7 +58,7 @@ class TestUserPreferences:
     def test_default_preferences(self):
         user_id = 12345
         prefs = get_user_preferences(user_id)
-        assert prefs == {"ru", "en", "th"}
+        assert prefs == {"ru", "en", "th", "ja", "ko"}  # All supported languages by default
 
     def test_toggle_preference(self):
         user_id = 12346
@@ -46,7 +66,7 @@ class TestUserPreferences:
         # Toggle off English
         prefs = update_user_preference(user_id, "en")
         assert "en" not in prefs
-        assert {"ru", "th"}.issubset(prefs)
+        assert {"ru", "th", "ja", "ko"}.issubset(prefs)
 
         # Toggle English back on
         prefs = update_user_preference(user_id, "en")
@@ -61,7 +81,7 @@ class TestUserPreferences:
         prefs = update_user_preference(user_id, "th")
 
         # Should auto-enable all languages
-        assert prefs == {"ru", "en", "th"}
+        assert prefs == {"ru", "en", "th", "ja", "ko"}
 
     def test_preference_persistence(self):
         user_id = 12348
@@ -107,7 +127,7 @@ class TestVoiceTranslationPipeline:
 
         # Voice transcription should use same preferences as text
         assert "en" not in prefs
-        assert {"ru", "th"}.issubset(prefs)
+        assert {"ru", "th", "ja", "ko"}.issubset(prefs)
 
     def test_language_detection_with_voice_transcription(self):
         """Test language detection works with voice transcription text"""
@@ -149,11 +169,11 @@ class TestVoiceTranslationPipeline:
         transcription = "Hello world"
 
         # Should fall back to translating to other languages
-        all_langs = {"ru", "en", "th"}
+        all_langs = {"ru", "en", "th", "ja", "ko"}
         target_langs = all_langs - {source_lang}
 
         # Verify fallback logic works
-        assert target_langs == {"ru", "th"}
+        assert target_langs == {"ru", "th", "ja", "ko"}
 
         # Test translation still works
         translations = await translate_text(transcription, source_lang, target_langs)
@@ -271,7 +291,7 @@ class TestUserAnalytics:
         assert analytics["is_disabled"] is False
         assert analytics["message_count"] == 0
         assert isinstance(analytics["last_activity"], datetime)
-        assert analytics["preferred_targets"] == {"ru", "en", "th"}
+        assert analytics["preferred_targets"] == {"ru", "en", "th", "ja", "ko"}
         assert "user_profile" in analytics
 
     def test_activity_update(self):

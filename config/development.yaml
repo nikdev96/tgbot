@@ -1,0 +1,62 @@
+# Development configuration for Telegram Translation Bot
+app:
+  name: "Translation Bot (Dev)"
+  version: "2.1.0-dev"
+  environment: "development"
+
+# Audio processing settings (more lenient for dev)
+audio:
+  max_duration_seconds: 300  # 5 minutes for faster testing
+  input_sample_rate: 16000
+  output_sample_rate: 48000
+  temp_cleanup_timeout: 10
+
+# Text-to-Speech settings
+tts:
+  max_characters: 200        # Shorter for testing
+  timeout_seconds: 15
+  voice: "alloy"
+  model: "tts-1"
+  speed: 1.2                 # Slightly faster for testing
+
+# Translation settings
+translation:
+  max_retries: 2             # Fewer retries for faster feedback
+  retry_delay_base: 1
+  display_truncate_length: 50
+  timeout_seconds: 15
+  max_input_characters: 1000 # Shorter for development
+  max_tokens: 300           # Fewer tokens for dev
+
+# Rate limiting (more lenient for development)
+rate_limits:
+  enabled: false             # Disabled for development
+  messages_per_minute: 100
+  voice_messages_per_hour: 100
+  admin_bypass: true
+
+# Database settings
+database:
+  path: "data/translator_bot_dev.db"
+  backup_enabled: false      # No backups in dev
+  backup_interval_hours: 24
+  connection_timeout: 10
+
+# Logging settings (more verbose)
+logging:
+  level: "DEBUG"
+  audit_enabled: true
+  max_log_size_mb: 10
+  backup_count: 2
+
+# OpenAI API settings
+openai:
+  timeout_seconds: 15
+  max_retries: 2
+  model: "gpt-4o"
+
+# Security settings (more lenient)
+security:
+  max_users: 10              # Limited for development
+  session_cleanup_hours: 24
+  admin_session_timeout: 120
