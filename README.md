@@ -1,65 +1,65 @@
-# 🌍 Telegram Translation Bot
+# 🌍 Телеграм Бот-Переводчик
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![aiogram](https://img.shields.io/badge/aiogram-3.x-green.svg)](https://docs.aiogram.dev/)
 [![OpenAI](https://img.shields.io/badge/OpenAI-GPT--4o-orange.svg)](https://openai.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A smart Telegram bot that translates text and voice messages between **Russian** 🇷🇺, **English** 🇺🇸, **Thai** 🇹🇭, **Japanese** 🇯🇵, **Korean** 🇰🇷, and **Vietnamese** 🇻🇳 with customizable user preferences using OpenAI's latest models.
+Умный Телеграм бот, который переводит текстовые и голосовые сообщения между **русским** 🇷🇺, **английским** 🇺🇸, **тайским** 🇹🇭, **японским** 🇯🇵, **корейским** 🇰🇷 и **вьетнамским** 🇻🇳 языками с настраиваемыми пользовательскими предпочтениями, используя последние модели OpenAI.
 
-## ✨ Features
+## ✨ Возможности
 
-- 🎯 **Smart Language Detection** - Automatically identifies Russian, English, Thai, Japanese, Korean, and Vietnamese
-- ⚙️ **User Preferences** - Customizable target languages via `/menu` command
-- 🔄 **Selective Translation** - Only translates to user-enabled languages
-- 🎤 **Voice Message Support** - Transcribes and translates voice notes using OpenAI Whisper
-- 🔊 **Voice Replies** - Optional TTS responses using OpenAI Audio API (female voice)
-- 🚀 **Async Performance** - Built with aiogram 3.x for fast responses
-- 🛡️ **Error Handling** - Retry logic with exponential backoff for API calls
-- 🎨 **Interactive Menu** - Toggle translation targets and voice replies with checkbox buttons
-- 🧹 **Auto Cleanup** - Temporary audio files automatically removed
-- 👑 **Admin Dashboard** - User analytics, management, and access control
-- 📊 **User Analytics** - Track activity, preferences, message counts, and voice usage
-- 🔒 **Access Control** - Enable/disable user access with audit logging
+- 🎯 **Умное определение языка** - Автоматически распознает русский, английский, тайский, японский, корейский и вьетнамский языки
+- ⚙️ **Пользовательские предпочтения** - Настраиваемые целевые языки через команду `/menu`
+- 🔄 **Выборочный перевод** - Переводит только на языки, включенные пользователем
+- 🎤 **Поддержка голосовых сообщений** - Расшифровывает и переводит голосовые заметки с помощью OpenAI Whisper
+- 🔊 **Голосовые ответы** - Опциональные TTS-ответы с использованием OpenAI Audio API (женский голос)
+- 🚀 **Асинхронная производительность** - Построен на aiogram 3.x для быстрых ответов
+- 🛡️ **Обработка ошибок** - Логика повторных попыток с экспоненциальной задержкой для API-вызовов
+- 🎨 **Интерактивное меню** - Переключение целевых языков и голосовых ответов с кнопками-чекбоксами
+- 🧹 **Автоочистка** - Временные аудиофайлы автоматически удаляются
+- 👑 **Панель администратора** - Аналитика пользователей, управление и контроль доступа
+- 📊 **Пользовательская аналитика** - Отслеживание активности, предпочтений, количества сообщений и использования голоса
+- 🔒 **Контроль доступа** - Включение/отключение доступа пользователей с ведением аудита
 
-## 🎬 Demo
+## 🎬 Демонстрация
 
-**Text Translation:**
+**Перевод текста:**
 ```
-User: Привет, как дела?
-Bot: 🇺🇸 English: Hello, how are you?
-Bot: 🇹🇭 Thai: สวัสดี เป็นอย่างไรบ้าง?
-```
-
-**Voice Translation:**
-```
-User: [sends voice message saying "Hello, how are you?"]
-Bot: 🎤 🇺🇸 Transcribed (English): Hello, how are you?
-Bot: 🇷🇺 Russian: Привет, как дела?
-Bot: 🇹🇭 Thai: สวัสดี เป็นอย่างไรบ้าง?
-Bot: 🔊 [Voice message with translations]
+Пользователь: Привет, как дела?
+Бот: 🇺🇸 English: Hello, how are you?
+Бот: 🇹🇭 Thai: สวัสดี เป็นอย่างไรบ้าง?
 ```
 
-**Voice Replies (when enabled):**
+**Перевод голосового сообщения:**
 ```
-User: Hello, how are you?
-Bot: 🇷🇺 Russian: Привет, как дела?
-Bot: 🇹🇭 Thai: สวัสดี เป็นอย่างไรบ้าง?
-Bot: 🔊 Voice translation (RU + TH)
-     [Audio clip with female voice saying both translations]
+Пользователь: [отправляет голосовое сообщение "Hello, how are you?"]
+Бот: 🎤 🇺🇸 Расшифровано (English): Hello, how are you?
+Бот: 🇷🇺 Russian: Привет, как дела?
+Бот: 🇹🇭 Thai: สวัสดี เป็นอย่างไรบ้าง?
+Бот: 🔊 [Голосовое сообщение с переводами]
 ```
 
-## 🚀 Quick Start
+**Голосовые ответы (при включении):**
+```
+Пользователь: Hello, how are you?
+Бот: 🇷🇺 Russian: Привет, как дела?
+Бот: 🇹🇭 Thai: สวัสดี เป็นอย่างไรบ้าง?
+Бот: 🔊 Голосовой перевод (RU + TH)
+     [Аудиоклип с женским голосом, произносящим оба перевода]
+```
 
-### Prerequisites
+## 🚀 Быстрый старт
+
+### Предварительные требования
 - Python 3.11+
-- FFmpeg (for audio processing)
-- Telegram Bot Token from [@BotFather](https://t.me/botfather)
-- OpenAI API Key
+- FFmpeg (для обработки аудио)
+- Токен Telegram Bot от [@BotFather](https://t.me/botfather)
+- API-ключ OpenAI
 
-### System Dependencies
+### Системные зависимости
 
-**Install FFmpeg:**
+**Установка FFmpeg:**
 
 **macOS:**
 ```bash
@@ -73,236 +73,236 @@ sudo apt install ffmpeg
 ```
 
 **Windows:**
-Download from [FFmpeg official site](https://ffmpeg.org/download.html) or use:
+Скачайте с [официального сайта FFmpeg](https://ffmpeg.org/download.html) или используйте:
 ```bash
-choco install ffmpeg  # Using Chocolatey
+choco install ffmpeg  # Используя Chocolatey
 ```
 
-### Installation
+### Установка
 
 ```bash
-# Clone repository
+# Клонируем репозиторий
 git clone https://github.com/nikdev96/tgbot.git
 cd tgbot
 
-# Install with Poetry (recommended)
+# Установка с Poetry (рекомендуется)
 curl -sSL https://install.python-poetry.org | python3 -
 poetry install
 poetry shell
 
-# OR install with pip
+# ИЛИ установка с pip
 python3.11 -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Configuration
+### Конфигурация
 ```bash
-# Copy example configuration
+# Копируем пример конфигурации
 cp .env.example .env
 
-# Edit with your credentials
+# Редактируем с вашими учетными данными
 nano .env
 ```
 
-Required environment variables:
+Обязательные переменные окружения:
 ```env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-OPENAI_API_KEY=your_openai_api_key_here
+TELEGRAM_BOT_TOKEN=ваш_токен_telegram_бота
+OPENAI_API_KEY=ваш_api_ключ_openai
 OPENAI_MODEL=gpt-4o
 ADMIN_USER_ID=123456789
 
-# Optional - Voice Replies (TTS)
+# Опционально - Голосовые ответы (TTS)
 OPENAI_TTS_MODEL=tts-1
 OPENAI_TTS_VOICE=alloy
 ```
 
-### 4. Get Your API Keys
+### 4. Получение API-ключей
 
-**🤖 Telegram Bot Token:**
-1. Message [@BotFather](https://t.me/botfather) on Telegram
-2. Send `/newbot` and follow instructions
-3. Copy the provided token
+**🤖 Токен Telegram Bot:**
+1. Напишите [@BotFather](https://t.me/botfather) в Telegram
+2. Отправьте `/newbot` и следуйте инструкциям
+3. Скопируйте предоставленный токен
 
-**🧠 OpenAI API Key:**
-1. Visit [OpenAI API Keys](https://platform.openai.com/api-keys)
-2. Create a new secret key
-3. Copy the key (starts with `sk-`)
+**🧠 API-ключ OpenAI:**
+1. Посетите [OpenAI API Keys](https://platform.openai.com/api-keys)
+2. Создайте новый секретный ключ
+3. Скопируйте ключ (начинается с `sk-`)
 
-### 5. Run the Bot
+### 5. Запуск бота
 ```bash
-# Using Poetry
+# Используя Poetry
 poetry run python -m src.bot
 
-# Using pip
+# Используя pip
 python -m src.bot
 ```
 
-🎉 **That's it!** Your bot is now running and ready to translate messages.
+🎉 **Готово!** Ваш бот теперь работает и готов переводить сообщения.
 
-## 📱 Usage
+## 📱 Использование
 
-### Regular Users
-1. **Start**: Send `/start` for welcome message and instructions
-2. **Menu**: Use `/menu` to configure translation preferences
-3. **Text**: Send any text in Russian, English, Thai, Japanese, Korean, or Vietnamese
-4. **Voice**: Send voice messages or audio files (up to 10 minutes)
-5. **Preferences**: Toggle target languages with ✅/❌ buttons (English enabled by default)
-6. **Voice Replies**: Toggle 🎤 Voice replies in `/menu` to receive TTS audio responses
+### Обычные пользователи
+1. **Начало работы**: Отправьте `/start` для приветственного сообщения и инструкций
+2. **Меню**: Используйте `/menu` для настройки предпочтений перевода
+3. **Текст**: Отправьте любой текст на русском, английском, тайском, японском, корейском или вьетнамском языках
+4. **Голос**: Отправьте голосовые сообщения или аудиофайлы (до 10 минут)
+5. **Предпочтения**: Переключайте целевые языки кнопками ✅/❌ (английский включен по умолчанию)
+6. **Голосовые ответы**: Переключите 🎤 Голосовые ответы в `/menu` для получения TTS аудио-ответов
 
-### Admin Features
-6. **Admin Dashboard**: Use `/admin` to access user management (admin only)
-7. **User Management**: View analytics, enable/disable users via dashboard
-8. **Analytics**: Monitor user activity, message counts, and preferences
+### Функции администратора
+6. **Панель администратора**: Используйте `/admin` для доступа к управлению пользователями (только для админов)
+7. **Управление пользователями**: Просмотр аналитики, включение/отключение пользователей через панель
+8. **Аналитика**: Мониторинг активности пользователей, количества сообщений и предпочтений
 
-### Voice Message Features
-- 🎤 **Supports**: Telegram voice messages and audio files
-- ⏱️ **Duration**: Up to 10 minutes per message
-- 🔊 **Formats**: OGG/Opus (Telegram voice), MP3, WAV, and other common formats
-- 🗣️ **Quality**: Optimized for speech recognition (16kHz mono)
-- 🧹 **Cleanup**: Temporary files automatically deleted after processing
+### Функции голосовых сообщений
+- 🎤 **Поддерживает**: Голосовые сообщения Telegram и аудиофайлы
+- ⏱️ **Продолжительность**: До 10 минут на сообщение
+- 🔊 **Форматы**: OGG/Opus (голос Telegram), MP3, WAV и другие распространенные форматы
+- 🗣️ **Качество**: Оптимизировано для распознавания речи (16kHz mono)
+- 🧹 **Очистка**: Временные файлы автоматически удаляются после обработки
 
-### Voice Replies Features
-- 🔊 **Text-to-Speech**: Uses OpenAI Audio API with female voice (alloy)
-- ⚙️ **Per-User Setting**: Toggle on/off via `/menu` (default: OFF)
-- 🎯 **Combined Audio**: Single voice clip with all translations
-- 📏 **Smart Limits**: Skips TTS for text longer than 500 characters
-- 💰 **Cost Awareness**: Additional OpenAI usage for TTS generation
-- 🎚️ **Quality**: 48kHz mono OGG/Opus format for Telegram
+### Функции голосовых ответов
+- 🔊 **Синтез речи**: Использует OpenAI Audio API с женским голосом (alloy)
+- ⚙️ **Индивидуальная настройка**: Включение/выключение через `/menu` (по умолчанию: ВЫКЛ)
+- 🎯 **Объединенное аудио**: Один голосовой клип со всеми переводами
+- 📏 **Умные ограничения**: Пропускает TTS для текста длиннее 500 символов
+- 💰 **Учет затрат**: Дополнительное использование OpenAI для генерации TTS
+- 🎚️ **Качество**: 48kHz mono OGG/Opus формат для Telegram
 
-### Admin Dashboard Features
-- 📊 **User Analytics**: Total users, active/disabled counts, per-user statistics
-- 👤 **User Profiles**: Username, language preferences, last activity, message count
-- 🔄 **Real-time Management**: Refresh dashboard, enable/disable users instantly
-- 🚫 **Access Control**: Disabled users receive polite access denied messages
-- 📝 **Audit Logging**: All admin actions and blocked attempts are logged
+### Функции панели администратора
+- 📊 **Пользовательская аналитика**: Общее количество пользователей, количество активных/отключенных, статистика по пользователям
+- 👤 **Профили пользователей**: Имя пользователя, языковые предпочтения, последняя активность, количество сообщений
+- 🔄 **Управление в реальном времени**: Обновление панели, мгновенное включение/отключение пользователей
+- 🚫 **Контроль доступа**: Отключенные пользователи получают вежливые сообщения об отказе в доступе
+- 📝 **Ведение аудита**: Все действия администратора и заблокированные попытки регистрируются
 
-**Admin Dashboard Commands:**
-- 🔄 **Refresh**: Update dashboard with latest analytics
-- ✅ **Enable User**: Restore access for disabled users
-- ❌ **Disable User**: Block user access (they'll see "Access disabled" message)
+**Команды панели администратора:**
+- 🔄 **Обновить**: Обновить панель с последней аналитикой
+- ✅ **Включить пользователя**: Восстановить доступ для отключенных пользователей
+- ❌ **Отключить пользователя**: Заблокировать доступ пользователя (они увидят сообщение "Доступ отключен")
 
-## 👑 Admin Features
+## 👑 Функции администратора
 
-### Setting Up Admins
+### Настройка администраторов
 
-1. **Single Admin**: Set your Telegram user ID in `.env`:
+1. **Один администратор**: Установите ваш Telegram user ID в `.env`:
    ```env
    ADMIN_USER_ID=292256687
    ```
 
-2. **Multiple Admins**: Use comma-separated IDs:
+2. **Несколько администраторов**: Используйте ID, разделенные запятыми:
    ```env
    ADMIN_USER_ID=292256687,123456789,987654321
    ```
 
-3. **Find Your User ID**: Message `@userinfobot` on Telegram
+3. **Найти ваш User ID**: Напишите `@userinfobot` в Telegram
 
-### Admin Dashboard (`/admin`)
+### Панель администратора (`/admin`)
 
-**Access Control:**
-- Only users listed in `ADMIN_USER_ID` can use `/admin`
-- Non-admins receive "Access denied" message
-- All access attempts are logged with audit trail
+**Контроль доступа:**
+- Только пользователи, указанные в `ADMIN_USER_ID`, могут использовать `/admin`
+- Не-администраторы получают сообщение "Доступ запрещен"
+- Все попытки доступа регистрируются с аудиторским следом
 
-**Dashboard Display:**
+**Отображение панели:**
 ```
-🔧 Admin Dashboard
+🔧 Панель администратора
 
-Total Users: 15
-Active: 12 | Disabled: 3
+Всего пользователей: 15
+Активные: 12 | Отключенные: 3
 
-User Summary:
+Сводка по пользователям:
 
 **Username** (user_id)
-Status: 🟢 Active
-Languages: ru, en, th
-Messages: 45 | Last: 2025-01-15 14:30
+Статус: 🟢 Активный
+Языки: ru, en, th
+Сообщений: 45 | Последняя: 2025-01-15 14:30
 ```
 
-**Dashboard Actions:**
-- 🔄 **Refresh**: Update analytics and user list
-- ✅ **Enable User**: Restore access for disabled users
-- ❌ **Disable User**: Block user access immediately
+**Действия панели:**
+- 🔄 **Обновить**: Обновить аналитику и список пользователей
+- ✅ **Включить пользователя**: Восстановить доступ для отключенных пользователей
+- ❌ **Отключить пользователя**: Немедленно заблокировать доступ пользователя
 
-### User Analytics (SQLite Database)
+### Пользовательская аналитика (База данных SQLite)
 
-**Tracked Data:**
-- `is_disabled`: User access status
-- `preferred_targets`: Language preferences
-- `message_count`: Total messages processed
-- `voice_responses_sent`: Voice reply count
-- `last_activity`: Last interaction timestamp
-- `user_profile`: Username, first/last name
+**Отслеживаемые данные:**
+- `is_disabled`: Статус доступа пользователя
+- `preferred_targets`: Языковые предпочтения
+- `message_count`: Общее количество обработанных сообщений
+- `voice_responses_sent`: Количество голосовых ответов
+- `last_activity`: Время последнего взаимодействия
+- `user_profile`: Имя пользователя, имя/фамилия
 
-**✅ Note**: Analytics are now stored persistently in SQLite database (`data/translator_bot.db`) with full async support.
+**✅ Примечание**: Аналитика теперь хранится постоянно в базе данных SQLite (`data/translator_bot.db`) с полной асинхронной поддержкой.
 
-### Access Control Enforcement
+### Принуждение контроля доступа
 
-**Disabled User Experience:**
-- All commands respond with: "❌ Access disabled. Contact support if you believe this is an error."
-- Blocked attempts are logged for audit purposes
-- No translation or voice processing occurs
+**Опыт отключенного пользователя:**
+- Все команды отвечают: "❌ Доступ отключен. Обратитесь в службу поддержки, если считаете, что это ошибка."
+- Заблокированные попытки регистрируются для аудита
+- Перевод или обработка голоса не происходит
 
-**Admin Audit Logging:**
+**Ведение аудита администратором:**
 ```
-2025-01-15 14:30:15 - audit - INFO - ADMIN_ACCESS: Admin 292256687 accessed dashboard
-2025-01-15 14:31:22 - audit - INFO - ADMIN_ACTION: Admin 292256687 disabled user 123456789
-2025-01-15 14:32:05 - audit - WARNING - BLOCKED_ACCESS: Disabled user 123456789 attempted text message
+2025-01-15 14:30:15 - audit - INFO - ADMIN_ACCESS: Администратор 292256687 получил доступ к панели
+2025-01-15 14:31:22 - audit - INFO - ADMIN_ACTION: Администратор 292256687 отключил пользователя 123456789
+2025-01-15 14:32:05 - audit - WARNING - BLOCKED_ACCESS: Отключенный пользователь 123456789 попытался отправить текстовое сообщение
 ```
 
-## 🧪 Testing
+## 🧪 Тестирование
 
 ```bash
-# Run all tests including voice pipeline and admin features
+# Запустить все тесты, включая голосовой конвейер и функции администратора
 pytest
 
-# Run with verbose output
+# Запустить с подробным выводом
 pytest -v
 
-# Test specific functionality
+# Тестировать конкретную функциональность
 pytest tests/test_language_detection.py::TestVoiceTranslationPipeline
 pytest tests/test_language_detection.py::TestUserAnalytics
 ```
 
-## 🏗️ Project Structure
+## 🏗️ Структура проекта
 
 ```
 telegram-translator-bot/
 ├── 📁 src/
 │   ├── __init__.py
-│   ├── bot.py                 # 🤖 Main bot logic
-│   ├── config.py             # ⚙️ Configuration management
+│   ├── bot.py                 # 🤖 Основная логика бота
+│   ├── config.py             # ⚙️ Управление конфигурацией
 │   └── 📁 storage/
-│       └── database.py       # 🗄️ SQLite database manager
+│       └── database.py       # 🗄️ Менеджер базы данных SQLite
 ├── 📁 tests/
 │   ├── __init__.py
-│   ├── test_language_detection.py  # 🧪 Unit tests
-│   ├── test_database.py      # 🗄️ Database tests
-│   └── test_config.py        # ⚙️ Config tests
+│   ├── test_language_detection.py  # 🧪 Модульные тесты
+│   ├── test_database.py      # 🗄️ Тесты базы данных
+│   └── test_config.py        # ⚙️ Тесты конфигурации
 ├── 📁 config/
-│   ├── development.yaml      # 🔧 Dev configuration
-│   └── production.yaml       # 🚀 Production configuration
-├── 📁 data/                  # 🗄️ Database storage (auto-created)
-├── pyproject.toml            # 📦 Poetry configuration
-├── requirements.txt          # 📋 Pip dependencies
-├── .env.example             # 🔧 Environment template
-├── .env                     # 🔐 Your secrets (git-ignored)
-├── README.md                # 📖 This file
-├── UPDATE.md                # 📝 Changelog and updates
-└── .gitignore              # 🚫 Git ignore rules
+│   ├── development.yaml      # 🔧 Конфигурация разработки
+│   └── production.yaml       # 🚀 Конфигурация продакшена
+├── 📁 data/                  # 🗄️ Хранение базы данных (создается автоматически)
+├── pyproject.toml            # 📦 Конфигурация Poetry
+├── requirements.txt          # 📋 Зависимости pip
+├── .env.example             # 🔧 Шаблон окружения
+├── .env                     # 🔐 Ваши секреты (игнорируется git)
+├── README.md                # 📖 Этот файл
+├── UPDATE.md                # 📝 История изменений и обновления
+└── .gitignore              # 🚫 Правила игнорирования Git
 ```
 
-## 🚀 Deployment
+## 🚀 Развертывание
 
-### Option 1: Linux Server with systemd
+### Вариант 1: Linux сервер с systemd
 
-1. **Upload code to server:**
+1. **Загрузка кода на сервер:**
 ```bash
 scp -r . user@your-server:/opt/translator-bot/
 ```
 
-2. **Setup on server:**
+2. **Настройка на сервере:**
 ```bash
 ssh user@your-server
 cd /opt/translator-bot
@@ -311,7 +311,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-3. **Create systemd service:**
+3. **Создание службы systemd:**
 ```bash
 sudo nano /etc/systemd/system/translator-bot.service
 ```
@@ -334,234 +334,189 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-4. **Start service:**
+4. **Запуск службы:**
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable translator-bot
 sudo systemctl start translator-bot
 ```
 
-### Option 2: Docker (Coming Soon)
+### Вариант 2: Docker (в разработке)
 
-### Option 3: Cloud Platforms
-- **Heroku** - Ready for deployment with Procfile
-- **Railway** - One-click deployment
-- **DigitalOcean App Platform** - Automated scaling
+### Вариант 3: Облачные платформы
+- **Heroku** - Готов к развертыванию с Procfile
+- **Railway** - Развертывание в один клик
+- **DigitalOcean App Platform** - Автоматическое масштабирование
 
-## 🔮 Future Enhancements
+## ⚙️ Конфигурация
 
-### Voice Message Support
-The bot is prepared for voice translation via OpenAI Whisper:
+### Переменные окружения
+| Переменная | По умолчанию | Описание |
+|------------|--------------|----------|
+| `TELEGRAM_BOT_TOKEN` | Обязательно | Ваш токен Telegram бота |
+| `OPENAI_API_KEY` | Обязательно | API-ключ OpenAI |
+| `OPENAI_MODEL` | `gpt-4o` | Используемая модель (`gpt-4o`, `gpt-4-turbo`, `gpt-4`, `gpt-3.5-turbo`) |
+| `ADMIN_USER_ID` | Опционально | ID администраторов через запятую для доступа к `/admin` |
+| `OPENAI_TTS_MODEL` | `tts-1` | Модель OpenAI TTS (`tts-1`, `tts-1-hd`) |
+| `OPENAI_TTS_VOICE` | `alloy` | Голос TTS (`alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`) |
 
-```python
-# TODO: Implement in src/bot.py
-@dp.message(F.voice)
-async def voice_handler(message: Message):
-    file = await bot.get_file(message.voice.file_id)
-    file_content = await bot.download_file(file.file_path)
+### Рекомендации по моделям
+- **gpt-4o** (по умолчанию) - ⭐ Лучший баланс: быстрый, точный, экономичный
+- **gpt-4-turbo** - Высокое качество, медленнее, дороже
+- **gpt-4** - Стандартное качество, самый медленный
+- **gpt-3.5-turbo** - Самый быстрый, дешевый, низкое качество для тайского
 
-    transcription = await openai_client.audio.transcriptions.create(
-        model="whisper-1",
-        file=file_content
-    )
+### Поддерживаемые языки
+| Язык | Код | Флаг |
+|------|-----|------|
+| Русский | `ru` | 🇷🇺 |
+| Английский | `en` | 🇺🇸 |
+| Тайский | `th` | 🇹🇭 |
+| Японский | `ja` | 🇯🇵 |
+| Корейский | `ko` | 🇰🇷 |
+| Вьетнамский | `vi` | 🇻🇳 |
 
-    # Process transcription through existing translation logic
-```
+## 🔧 Устранение неисправностей
 
-### Planned Features
-- 🎵 Voice message translation
-- 📊 Usage analytics
-- 🌐 Additional language support
-- 💾 Translation history
-- ⚡ Caching for faster responses
+### Распространенные проблемы
 
-## ⚙️ Configuration
+**❌ Бот не отвечает**
+- Проверьте правильность токена бота
+- Убедитесь, что бот не запущен где-то еще
+- Убедитесь, что webhook отключен (`/deleteWebhook` для @BotFather)
 
-### Environment Variables
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Required | Your Telegram bot token |
-| `OPENAI_API_KEY` | Required | OpenAI API key |
-| `OPENAI_MODEL` | `gpt-4o` | Model to use (`gpt-4o`, `gpt-4-turbo`, `gpt-4`, `gpt-3.5-turbo`) |
-| `ADMIN_USER_ID` | Optional | Comma-separated admin user IDs for `/admin` access |
-| `OPENAI_TTS_MODEL` | `tts-1` | OpenAI TTS model (`tts-1`, `tts-1-hd`) |
-| `OPENAI_TTS_VOICE` | `alloy` | TTS voice (`alloy`, `echo`, `fable`, `onyx`, `nova`, `shimmer`) |
+**❌ Сбои перевода**
+- Проверьте API-ключ OpenAI и статус биллинга
+- Проверьте квоту API и лимиты использования
+- Попробуйте переключиться на `gpt-3.5-turbo` для экономии (примечание: низкое качество для тайского)
 
-### Model Recommendations
-- **gpt-4o** (default) - ⭐ Best balance: fast, accurate, cost-effective
-- **gpt-4-turbo** - High quality, slower, more expensive
-- **gpt-4** - Standard quality, slowest
-- **gpt-3.5-turbo** - Fastest, cheapest, lower quality for Thai
+**❌ Проблемы определения языка**
+- Отправьте более длинный текст (рекомендуется минимум 5-10 слов)
+- Убедитесь, что текст на русском, английском, тайском, японском, корейском или вьетнамском языке
+- Смешанный текст может не определяться правильно
 
-### Supported Languages
-| Language | Code | Flag |
-|----------|------|------|
-| Russian | `ru` | 🇷🇺 |
-| English | `en` | 🇺🇸 |
-| Thai | `th` | 🇹🇭 |
-| Japanese | `ja` | 🇯🇵 |
-| Korean | `ko` | 🇰🇷 |
-| Vietnamese | `vi` | 🇻🇳 |
+**❌ Сбои обработки голоса**
+- Убедитесь, что FFmpeg установлен и находится в PATH
+- Проверьте, не поврежден ли аудиофайл
+- Убедитесь в наличии достаточного дискового пространства для временных файлов
 
-## 🔧 Troubleshooting
+**❌ Ошибки транскрипции**
+- Говорите четко и избегайте фонового шума
+- Проверьте квоту OpenAI API для использования Whisper
+- Убедитесь, что аудио короче 10 минут
 
-### Common Issues
+**❌ Сообщение "Аудио слишком длинное"**
+- Разделите длинные записи на более короткие сегменты
+- Текущий лимит составляет 10 минут на сообщение
 
-**❌ Bot not responding**
-- Verify bot token is correct
-- Check if bot is already running elsewhere
-- Ensure webhook is disabled (`/deleteWebhook` to @BotFather)
+**❌ "Доступ запрещен" для функций администратора**
+- Убедитесь, что ваш user ID находится в переменной окружения `ADMIN_USER_ID`
+- Используйте команду `/admin` для доступа к панели (только для администраторов)
+- Несколько администраторов: `ADMIN_USER_ID=123456789,987654321`
 
-**❌ Translation failures**
-- Verify OpenAI API key and billing status
-- Check API quota and usage limits
-- Try switching to `gpt-3.5-turbo` for cost efficiency (note: lower quality for Thai)
+**❌ "Доступ отключен" для обычных пользователей**
+- Обратитесь к администратору, если считаете, что это ошибка
+- Администраторы могут повторно включить доступ через панель `/admin`
 
-**❌ Language detection issues**
-- Send longer text (minimum 5-10 words recommended)
-- Ensure text is in Russian, English, Thai, Japanese, Korean, or Vietnamese
-- Mixed-language text may not detect properly
+**❌ Голосовые ответы не работают**
+- Убедитесь, что FFmpeg установлен и находится в PATH для конвертации аудио
+- Проверьте квоту OpenAI API для использования TTS (отдельно от завершения текста)
+- Убедитесь, что `OPENAI_TTS_MODEL` и `OPENAI_TTS_VOICE` правильно настроены
+- Текст длиннее 500 символов автоматически пропустит TTS
 
-**❌ Voice processing fails**
-- Ensure FFmpeg is installed and in PATH
-- Check audio file isn't corrupted
-- Verify sufficient disk space for temp files
+**❌ "Ошибка TTS" или "Ошибка голосового ответа"**
+- Проверьте статус биллинга OpenAI API и квоту TTS
+- Проверьте подключение к интернету для вызовов OpenAI API
+- Проверьте логи для конкретных деталей ошибки (лимиты скорости, ошибки API)
 
-**❌ Transcription errors**
-- Speak clearly and avoid background noise
-- Check OpenAI API quota for Whisper usage
-- Ensure audio is under 10 minutes
+### Получение помощи
 
-**❌ "Audio too long" message**
-- Split longer recordings into shorter segments
-- Current limit is 10 minutes per message
+1. 📖 Проверьте этот README для инструкций по настройке
+2. 🔧 Проверьте установку FFmpeg: `ffmpeg -version`
+3. 🐛 [Создайте issue](https://github.com/nikdev96/tgbot/issues) с логами ошибок
 
-**❌ "Access denied" for admin features**
-- Verify your user ID is in `ADMIN_USER_ID` environment variable
-- Use `/admin` command to access dashboard (admin only)
-- Multiple admins: `ADMIN_USER_ID=123456789,987654321`
+## 🤝 Вклад в проект
 
-**❌ "Access disabled" for regular users**
-- Contact administrator if you believe this is an error
-- Admins can re-enable access via `/admin` dashboard
+Мы приветствуем вклад! Вот как:
 
-**❌ Voice replies not working**
-- Ensure FFmpeg is installed and in PATH for audio conversion
-- Check OpenAI API quota for TTS usage (separate from text completions)
-- Verify `OPENAI_TTS_MODEL` and `OPENAI_TTS_VOICE` are correctly set
-- Text longer than 500 characters will skip TTS automatically
+1. **Сделайте форк** репозитория
+2. **Создайте** ветку функции (`git checkout -b feature/amazing-feature`)
+3. **Закоммитьте** ваши изменения (`git commit -m 'Add amazing feature'`)
+4. **Запушьте** в ветку (`git push origin feature/amazing-feature`)
+5. **Откройте** Pull Request
 
-**❌ \"TTS error\" or \"Voice reply error\"**
-- Check OpenAI API billing status and TTS quota
-- Verify internet connection for OpenAI API calls
-- Check logs for specific error details (rate limits, API errors)
-
-### Getting Help
-
-1. 📖 Check this README for setup instructions
-2. 🔧 Verify FFmpeg installation: `ffmpeg -version`
-3. 🐛 [Open an issue](https://github.com/nikdev96/tgbot/issues) with error logs
-
-## 🤝 Contributing
-
-We welcome contributions! Here's how:
-
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Push** to the branch (`git push origin feature/amazing-feature`)
-5. **Open** a Pull Request
-
-### Development Setup
+### Настройка для разработки
 ```bash
-# Install dev dependencies
+# Установите dev зависимости
 poetry install --with dev
 
-# Format code
+# Форматирование кода
 black src/ tests/
 isort src/ tests/
 
-# Lint code
+# Линтинг кода
 flake8 src/ tests/
 
-# Run tests
+# Запуск тестов
 pytest
 ```
 
-## 📄 License
+## 📄 Лицензия
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+Этот проект лицензирован под лицензией MIT - см. файл [LICENSE](LICENSE) для деталей.
 
-## 🙏 Acknowledgments
+## 🙏 Благодарности
 
-- [aiogram](https://github.com/aiogram/aiogram) - Modern Telegram Bot API framework
-- [OpenAI](https://openai.com/) - Powerful AI translation capabilities
-- [langdetect](https://github.com/Mimino666/langdetect) - Language detection library
+- [aiogram](https://github.com/aiogram/aiogram) - Современный фреймворк Telegram Bot API
+- [OpenAI](https://openai.com/) - Мощные возможности перевода с ИИ
+- [langdetect](https://github.com/Mimino666/langdetect) - Библиотека определения языка
 
-## 📊 Stats
+## 📊 Статистика
 
-![GitHub stars](https://img.shields.io/github/stars/yourusername/telegram-translator-bot?style=social)
-![GitHub forks](https://img.shields.io/github/forks/yourusername/telegram-translator-bot?style=social)
-![GitHub issues](https://img.shields.io/github/issues/yourusername/telegram-translator-bot)
+![GitHub stars](https://img.shields.io/github/stars/nikdev96/tgbot?style=social)
+![GitHub forks](https://img.shields.io/github/forks/nikdev96/tgbot?style=social)
+![GitHub issues](https://img.shields.io/github/issues/nikdev96/tgbot)
 
-## 🆕 Latest Updates
+## 🆕 Последние обновления
 
-### v2.3.0 - Async Refactoring Complete (Sept 28, 2025)
+### v2.3.0 - Асинхронная архитектура завершена (28 сентября 2025)
 
-**⚡ PERFORMANCE REVOLUTION:**
-- ✅ **Async refactoring complete** - All sync wrappers removed, pure async architecture
-- ✅ **60%+ speed improvement** - Voice processing: 22s → ~9s (parallel TTS generation)
-- ✅ **Response caching** - Translation cache (1h) + TTS cache (30min) for instant responses
-- ✅ **Parallel processing** - All voice responses generated simultaneously
-- ✅ **Smart audio optimization** - Skip unnecessary conversions when audio is optimal
+**⚡ РЕВОЛЮЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ:**
+- ✅ **Асинхронная архитектура завершена** - Все синхронные обертки удалены, чистая асинхронная архитектура
+- ✅ **Улучшение скорости на 60%+** - Обработка голоса: 22с → ~9с (параллельная генерация TTS)
+- ✅ **Кэширование ответов** - Кэш переводов (1ч) + кэш TTS (30мин) для мгновенных ответов
+- ✅ **Параллельная обработка** - Все голосовые ответы генерируются одновременно
+- ✅ **Умная оптимизация аудио** - Пропуск ненужных преобразований при оптимальном аудио
 
-**🔧 Technical Excellence:**
-- ✅ **All tests passing** - 30/30 tests green after async conversion
-- ✅ **Clean codebase** - Sync wrappers removed, duplicate functions consolidated
-- ✅ **Production stability** - Comprehensive testing with real-world scenarios
-- ✅ **Admin functionality** - Dashboard fully tested with audit logging
-- ✅ **6 languages** - RU/EN/TH/JA/KO/VI all working perfectly
+**🔧 Техническое совершенство:**
+- ✅ **Все тесты пройдены** - 30/30 тестов успешны после асинхронного преобразования
+- ✅ **Чистая кодовая база** - Синхронные обертки удалены, дублирующие функции объединены
+- ✅ **Стабильность в продакшене** - Всестороннее тестирование в реальных сценариях
+- ✅ **Функциональность администратора** - Панель полностью протестирована с ведением аудита
+- ✅ **6 языков** - RU/EN/TH/JA/KO/VI все работают идеально
 
-**🎯 Real-World Testing Results:**
-- ✅ **Voice transcription** - Russian "Привет, как дела? Давай протестируем новую функцию..." processed flawlessly
-- ✅ **Multi-language translation** - Perfect translations to Japanese, Korean, Vietnamese, English, Thai
-- ✅ **Parallel TTS** - 5 voice responses generated in 1.68s-2.40s (simultaneously)
-- ✅ **Admin panel** - Mass user disable/enable operations working smoothly
-- ✅ **Cache efficiency** - ~40% reduction in API calls and costs
+**🎯 Результаты тестирования в реальном мире:**
+- ✅ **Транскрипция голоса** - Русский "Привет, как дела? Давай протестируем новую функцию..." обработан безупречно
+- ✅ **Многоязычный перевод** - Идеальные переводы на японский, корейский, вьетнамский, английский, тайский
+- ✅ **Параллельный TTS** - 5 голосовых ответов сгенерировано за 1.68с-2.40с (одновременно)
+- ✅ **Панель администратора** - Массовые операции включения/отключения пользователей работают плавно
+- ✅ **Эффективность кэша** - ~40% снижение API-вызовов и затрат
 
-**📊 Performance Metrics:**
-- **Text translation**: < 2 seconds
-- **Voice transcription**: 3-5 seconds
-- **Voice responses**: 2-3 seconds (parallel, was 22s+)
-- **Cached responses**: < 1 second
-- **Overall voice pipeline**: ~9 seconds (down from 22+ seconds)
+**📊 Метрики производительности:**
+- **Перевод текста**: < 2 секунд
+- **Транскрипция голоса**: 3-5 секунд
+- **Голосовые ответы**: 2-3 секунды (параллельно, было 22с+)
+- **Кэшированные ответы**: < 1 секунды
+- **Общий голосовой конвейер**: ~9 секунд (снижение с 22+ секунд)
 
-**🔗 Branch:** `fix/tgbot` (async refactoring complete)
-
----
-
-### v2.2.1 - Production-Ready Release (Sept 2025)
-
-**🚀 Production Stability:**
-- ✅ **SQLite migration complete** - Full persistence with 0 data loss
-- ✅ **Vietnamese language** - 6th language fully integrated (RU/EN/TH/JA/KO/VI)
-- ✅ **Async architecture fixed** - All event loop conflicts resolved
-- ✅ **46/47 tests passing** - Production-ready test coverage
-
-**🔧 Technical Achievements:**
-- ✅ **Database operations** - Async SQLite with proper connection management
-- ✅ **Performance maintained** - Voice processing 2.75s (was 22s+ before optimization)
-- ✅ **Memory efficiency** - Persistent storage reduces memory footprint
-- ✅ **Error handling** - Comprehensive error recovery and logging
-
-**🔗 Branch:** `bugfix/admin-dashboard-keyboard-fixes`
+**🔗 Ветка:** `fix/tgbot` (асинхронная архитектура завершена)
 
 ---
 
 <div align="center">
 
-**Built with ❤️ for the global community**
+**Создано с ❤️ для глобального сообщества**
 
-*Making language barriers disappear, one message at a time* 🌍
+*Разрушаем языковые барьеры, одно сообщение за раз* 🌍
 
 </div>
