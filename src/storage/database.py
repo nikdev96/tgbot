@@ -363,3 +363,204 @@ class DatabaseManager:
             return users
         finally:
             conn.close()
+
+    # Atomic operations for analytics to prevent race conditions
+    async def increment_message_count(self, user_id: int, user_profile: Optional[Dict] = None):
+        """Atomically increment user message count and update last activity"""
+        await asyncio.get_event_loop().run_in_executor(
+            None, self._increment_message_count_sync, user_id, user_profile
+        )
+
+    def _increment_message_count_sync(self, user_id: int, user_profile: Optional[Dict] = None):
+        """Synchronous version of increment_message_count"""
+        conn = self._get_connection()
+        try:
+            # Ensure user exists first
+            profile = user_profile or {"username": None, "first_name": None, "last_name": None}
+            conn.execute("""
+                INSERT OR IGNORE INTO users (id, username, first_name, last_name)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, profile["username"], profile["first_name"], profile["last_name"]))
+
+            # Atomically increment message count and update last activity
+            conn.execute("""
+                UPDATE users SET
+                    message_count = message_count + 1,
+                    last_activity = CURRENT_TIMESTAMP,
+                    username = COALESCE(?, username),
+                    first_name = COALESCE(?, first_name),
+                    last_name = COALESCE(?, last_name)
+                WHERE id = ?
+            """, (profile["username"], profile["first_name"], profile["last_name"], user_id))
+
+            conn.commit()
+        finally:
+            conn.close()
+
+    async def increment_voice_responses(self, user_id: int):
+        """Atomically increment voice response counter"""
+        await asyncio.get_event_loop().run_in_executor(
+            None, self._increment_voice_responses_sync, user_id
+        )
+
+    def _increment_voice_responses_sync(self, user_id: int):
+        """Synchronous version of increment_voice_responses"""
+        conn = self._get_connection()
+        try:
+            # Ensure user exists first
+            conn.execute("""
+                INSERT OR IGNORE INTO users (id) VALUES (?)
+            """, (user_id,))
+
+            # Atomically increment voice responses counter
+            conn.execute("""
+                UPDATE users SET voice_responses_sent = voice_responses_sent + 1
+                WHERE id = ?
+            """, (user_id,))
+
+            conn.commit()
+        finally:
+            conn.close()
+
+    async def toggle_user_disabled(self, user_id: int) -> bool:
+        """Atomically toggle user disabled status"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._toggle_user_disabled_sync, user_id
+        )
+
+    def _toggle_user_disabled_sync(self, user_id: int) -> bool:
+        """Synchronous version of toggle_user_disabled"""
+        conn = self._get_connection()
+        try:
+            # Ensure user exists first
+            conn.execute("""
+                INSERT OR IGNORE INTO users (id) VALUES (?)
+            """, (user_id,))
+
+            # Get current disabled status and toggle it
+            cursor = conn.execute("""
+                SELECT is_disabled FROM users WHERE id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+            current_disabled = bool(row["is_disabled"]) if row else False
+            new_disabled = not current_disabled
+
+            # Atomically update disabled status
+            conn.execute("""
+                UPDATE users SET is_disabled = ? WHERE id = ?
+            """, (new_disabled, user_id))
+
+            conn.commit()
+            return not new_disabled  # Return enabled status
+        finally:
+            conn.close()
+
+    async def set_user_disabled(self, user_id: int, disabled: bool) -> bool:
+        """Atomically set user disabled status"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._set_user_disabled_sync, user_id, disabled
+        )
+
+    def _set_user_disabled_sync(self, user_id: int, disabled: bool) -> bool:
+        """Synchronous version of set_user_disabled"""
+        conn = self._get_connection()
+        try:
+            # Ensure user exists first
+            conn.execute("""
+                INSERT OR IGNORE INTO users (id) VALUES (?)
+            """, (user_id,))
+
+            # Atomically set disabled status
+            conn.execute("""
+                UPDATE users SET is_disabled = ? WHERE id = ?
+            """, (disabled, user_id))
+
+            conn.commit()
+            return not disabled  # Return enabled status
+        finally:
+            conn.close()
+
+    async def toggle_voice_replies(self, user_id: int) -> bool:
+        """Atomically toggle voice replies preference"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._toggle_voice_replies_sync, user_id
+        )
+
+    def _toggle_voice_replies_sync(self, user_id: int) -> bool:
+        """Synchronous version of toggle_voice_replies"""
+        conn = self._get_connection()
+        try:
+            # Ensure user exists first
+            conn.execute("""
+                INSERT OR IGNORE INTO users (id) VALUES (?)
+            """, (user_id,))
+
+            # Get current voice replies status and toggle it
+            cursor = conn.execute("""
+                SELECT voice_replies_enabled FROM users WHERE id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+            current_enabled = bool(row["voice_replies_enabled"]) if row else False
+            new_enabled = not current_enabled
+
+            # Atomically update voice replies status
+            conn.execute("""
+                UPDATE users SET voice_replies_enabled = ? WHERE id = ?
+            """, (new_enabled, user_id))
+
+            conn.commit()
+            return new_enabled
+        finally:
+            conn.close()
+
+    async def toggle_language_preference(self, user_id: int, lang_code: str) -> Set[str]:
+        """Atomically toggle language preference and return current preferences"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._toggle_language_preference_sync, user_id, lang_code
+        )
+
+    def _toggle_language_preference_sync(self, user_id: int, lang_code: str) -> Set[str]:
+        """Synchronous version of toggle_language_preference"""
+        conn = self._get_connection()
+        try:
+            # Ensure user exists first
+            conn.execute("""
+                INSERT OR IGNORE INTO users (id) VALUES (?)
+            """, (user_id,))
+
+            # Check if preference exists
+            cursor = conn.execute("""
+                SELECT 1 FROM user_language_preferences WHERE user_id = ? AND language_code = ?
+            """, (user_id, lang_code))
+            exists = cursor.fetchone() is not None
+
+            if exists:
+                # Remove preference
+                conn.execute("""
+                    DELETE FROM user_language_preferences WHERE user_id = ? AND language_code = ?
+                """, (user_id, lang_code))
+            else:
+                # Add preference
+                conn.execute("""
+                    INSERT OR IGNORE INTO user_language_preferences (user_id, language_code) VALUES (?, ?)
+                """, (user_id, lang_code))
+
+            # Get current preferences
+            cursor = conn.execute("""
+                SELECT language_code FROM user_language_preferences WHERE user_id = ?
+            """, (user_id,))
+            current_prefs = {row["language_code"] for row in cursor.fetchall()}
+
+            # If no preferences left, restore all default languages
+            if not current_prefs:
+                default_langs = {"ru", "en", "th", "ja", "ko", "vi"}
+                for lang in default_langs:
+                    conn.execute("""
+                        INSERT OR IGNORE INTO user_language_preferences (user_id, language_code) VALUES (?, ?)
+                    """, (user_id, lang))
+                current_prefs = default_langs
+
+            conn.commit()
+            return current_prefs
+        finally:
+            conn.close()
