@@ -1,5 +1,5 @@
 """
-Voice and audio message handlers
+Voice and audio message handlers with forced ffmpeg fallback for Python 3.13
 """
 import logging
 import shutil
@@ -7,10 +7,17 @@ from aiogram import F
 from aiogram.types import Message
 from ..core.app import bot, config, audit_logger
 from ..services.analytics import is_user_disabled
-from ..services.voice import download_and_convert_audio, transcribe_audio
 from ..services.translation import process_translation
 
 logger = logging.getLogger(__name__)
+
+# Force use of ffmpeg version due to Python 3.13 audioop issue
+try:
+    from ..services.voice_fix import download_and_convert_audio_ffmpeg as download_and_convert_audio, transcribe_audio
+    logger.info("Using ffmpeg fallback for audio processing (Python 3.13 compatibility)")
+except ImportError as e:
+    logger.error(f"Failed to import ffmpeg fallback: {e}")
+    raise
 
 
 def register_handlers(dp):
@@ -54,15 +61,11 @@ async def voice_handler(message: Message):
 
         await status_msg.edit_text("🔄 Downloading audio...")
 
-        # Check if pydub and ffmpeg are available
+        # Download and convert audio using ffmpeg
         try:
-            # Download and convert audio
             audio_path = await download_and_convert_audio(file_info.file_path)
             temp_dir = audio_path.parent
-        except ImportError as e:
-            await status_msg.edit_text("❌ Audio processing not available. pydub is required.")
-            logger.error(f"pydub import error: {e}")
-            return
+            logger.info(f"Audio processed successfully: {audio_path}")
         except Exception as e:
             if "ffmpeg" in str(e).lower():
                 await status_msg.edit_text("❌ Audio processing requires FFmpeg. Please install FFmpeg first.")
@@ -78,6 +81,7 @@ async def voice_handler(message: Message):
         # Transcribe using Whisper
         try:
             transcription = await transcribe_audio(audio_path)
+            logger.info(f"Transcription successful: {len(transcription)} characters")
         except Exception as e:
             await status_msg.edit_text("❌ Could not transcribe audio. Please try again with clearer speech.")
             logger.error(f"Transcription error: {e}")
