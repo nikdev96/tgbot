@@ -46,23 +46,23 @@ async def room_command(message: Message):
         members = await RoomManager.get_room_members(active_room.id)
 
         text = (
-            f"🏠 *Room: {active_room.code}*\n\n"
-            f"👥 Members: {len(members)}/{active_room.max_members}\n"
-            f"⏰ Expires: {active_room.expires_at.strftime('%Y-%m-%d %H:%M') if active_room.expires_at else 'Never'}\n\n"
-            f"💬 Send messages here and they'll be translated for all members!"
+            f"🏠 *Комната: {active_room.code}*\n\n"
+            f"👥 Участники: {len(members)}/{active_room.max_members}\n"
+            f"⏰ Истекает: {active_room.expires_at.strftime('%Y-%m-%d %H:%M') if active_room.expires_at else 'Никогда'}\n\n"
+            f"💬 Отправляйте сообщения - они будут переведены для всех участников!"
         )
         keyboard = build_room_info_keyboard(active_room, user_id)
         await message.reply(text, parse_mode="Markdown", reply_markup=keyboard)
     else:
         # Show main menu
         text = (
-            "🏠 *Translation Rooms*\n\n"
-            "Create or join a room to have real-time translated conversations!\n\n"
-            "*Features:*\n"
-            "• Everyone writes in their language\n"
-            "• Messages auto-translated for others\n"
-            "• Your original text stays with you\n"
-            "• Support for 2-10 participants"
+            "🏠 *Переговорные комнаты*\n\n"
+            "Создайте или присоединитесь к комнате для общения с автопереводом!\n\n"
+            "*Возможности:*\n"
+            "• Каждый пишет на своём языке\n"
+            "• Сообщения автоматически переводятся для других\n"
+            "• Ваш оригинальный текст сохраняется\n"
+            "• Поддержка 2-10 участников"
         )
         keyboard = build_rooms_main_menu()
         await message.reply(text, parse_mode="Markdown", reply_markup=keyboard)
@@ -88,11 +88,11 @@ async def room_callback(callback: CallbackQuery):
     elif action == "join":
         # Show join instructions
         text = (
-            "🔑 *Join Room*\n\n"
-            "To join a room, send the command:\n"
-            "`/room join CODE`\n\n"
-            "Example: `/room join ABC123`\n\n"
-            "Ask the room creator to share their room code with you!"
+            "🔑 *Присоединиться к комнате*\n\n"
+            "Чтобы присоединиться, отправьте команду:\n"
+            "`/room join КОД`\n\n"
+            "Пример: `/room join ABC123`\n\n"
+            "Попросите создателя комнаты поделиться кодом!"
         )
         await callback.message.edit_text(text, parse_mode="Markdown")
         await callback.answer()
@@ -102,9 +102,9 @@ async def room_callback(callback: CallbackQuery):
         success, msg = await RoomManager.leave_room(user_id)
         if success:
             text = (
-                "👋 *Left Room*\n\n"
-                "You have left the room.\n"
-                "Use /room to create or join another room."
+                "👋 *Вы покинули комнату*\n\n"
+                "Вы вышли из комнаты.\n"
+                "Используйте /room чтобы создать или присоединиться к другой."
             )
             await callback.message.edit_text(text, parse_mode="Markdown")
             audit_logger.info(f"ROOM_ACTION: User {user_id} left room")
@@ -122,9 +122,9 @@ async def room_callback(callback: CallbackQuery):
         success, msg = await RoomManager.close_room(active_room.id, user_id)
         if success:
             text = (
-                f"🔒 *Room Closed*\n\n"
-                f"Room {active_room.code} has been closed.\n"
-                f"All members have been notified."
+                f"🔒 *Комната закрыта*\n\n"
+                f"Комната {active_room.code} была закрыта.\n"
+                f"Все участники уведомлены."
             )
             await callback.message.edit_text(text, parse_mode="Markdown")
 
@@ -136,7 +136,7 @@ async def room_callback(callback: CallbackQuery):
                         from ..core.app import bot
                         await bot.send_message(
                             member.user_id,
-                            f"🔒 Room {active_room.code} has been closed by the creator."
+                            f"🔒 Комната {active_room.code} была закрыта создателем."
                         )
                     except Exception as e:
                         logger.error(f"Error notifying user {member.user_id}: {e}")
@@ -160,7 +160,7 @@ async def room_callback(callback: CallbackQuery):
 
         from ..core.constants import SUPPORTED_LANGUAGES
 
-        text = f"👥 *Room {active_room.code} - Members*\n\n"
+        text = f"👥 *Комната {active_room.code} - Участники*\n\n"
         for member in members:
             lang_info = SUPPORTED_LANGUAGES.get(member.language_code, {})
             flag = lang_info.get('flag', '🏳️')
@@ -181,10 +181,10 @@ async def room_callback(callback: CallbackQuery):
         members = await RoomManager.get_room_members(active_room.id)
 
         text = (
-            f"🏠 *Room: {active_room.code}*\n\n"
-            f"👥 Members: {len(members)}/{active_room.max_members}\n"
-            f"⏰ Expires: {active_room.expires_at.strftime('%Y-%m-%d %H:%M') if active_room.expires_at else 'Never'}\n\n"
-            f"💬 Send messages and they'll be translated!"
+            f"🏠 *Комната: {active_room.code}*\n\n"
+            f"👥 Участники: {len(members)}/{active_room.max_members}\n"
+            f"⏰ Истекает: {active_room.expires_at.strftime('%Y-%m-%d %H:%M') if active_room.expires_at else 'Никогда'}\n\n"
+            f"💬 Отправляйте сообщения - они будут переведены!"
         )
         keyboard = build_room_info_keyboard(active_room, user_id)
         try:
@@ -216,13 +216,13 @@ async def handle_create_room(callback: CallbackQuery):
         code = await RoomManager.create_room(user_id, user_lang)
 
         text = (
-            f"✅ *Room Created!*\n\n"
-            f"🔑 Room Code: `{code}`\n"
-            f"🗣️ Your Language: {user_lang.upper()}\n\n"
-            f"*Share this code with others:*\n"
+            f"✅ *Комната создана!*\n\n"
+            f"🔑 Код комнаты: `{code}`\n"
+            f"🗣️ Ваш язык: {user_lang.upper()}\n\n"
+            f"*Поделитесь кодом с другими:*\n"
             f"`/room join {code}`\n\n"
-            f"💬 Start sending messages!\n"
-            f"They'll be auto-translated for all members."
+            f"💬 Начните отправлять сообщения!\n"
+            f"Они будут автоматически переведены для всех участников."
         )
 
         room = await RoomManager.get_active_room(user_id)
@@ -265,11 +265,11 @@ async def handle_join_command(message: Message, code: str):
         members = await RoomManager.get_room_members(active_room.id)
 
         text = (
-            f"✅ *Joined Room {code.upper()}!*\n\n"
-            f"👥 Members: {len(members)}/{active_room.max_members}\n"
-            f"🗣️ Your Language: {user_lang.upper()}\n\n"
-            f"💬 Start sending messages!\n"
-            f"Your messages will be translated to other members' languages."
+            f"✅ *Вы присоединились к комнате {code.upper()}!*\n\n"
+            f"👥 Участники: {len(members)}/{active_room.max_members}\n"
+            f"🗣️ Ваш язык: {user_lang.upper()}\n\n"
+            f"💬 Начните отправлять сообщения!\n"
+            f"Ваши сообщения будут переведены на языки других участников."
         )
 
         keyboard = build_room_info_keyboard(active_room, user_id)
@@ -280,10 +280,10 @@ async def handle_join_command(message: Message, code: str):
             if member.user_id != user_id:
                 try:
                     from ..core.app import bot
-                    user_name = message.from_user.username or message.from_user.first_name or f"User {user_id}"
+                    user_name = message.from_user.username or message.from_user.first_name or f"Пользователь {user_id}"
                     await bot.send_message(
                         member.user_id,
-                        f"👋 {user_name} joined the room!"
+                        f"👋 {user_name} присоединился к комнате!"
                     )
                 except Exception as e:
                     logger.error(f"Error notifying member {member.user_id}: {e}")
