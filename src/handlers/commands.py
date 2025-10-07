@@ -36,6 +36,21 @@ async def start_handler(message: Message):
     # Update user activity
     await update_user_activity(user_id, message.from_user)
 
+    # Check for deep link (room join)
+    if message.text and len(message.text.split()) > 1:
+        param = message.text.split()[1]
+        if param.startswith("join_"):
+            room_code = param.replace("join_", "")
+            # Redirect to room join with language selection
+            from aiogram.fsm.context import FSMContext
+            from ..core.app import dp
+            state = dp.fsm.get_context(bot=message.bot, user_id=user_id, chat_id=message.chat.id)
+
+            # Auto-trigger join flow
+            from .room_commands import handle_join_command
+            await handle_join_command(message, room_code, state)
+            return
+
     text = (
         "🌍 **Translation Bot**\n\n"
         "I translate between 6 languages: 🇷🇺 Russian, 🇺🇸 English, 🇹🇭 Thai, 🇯🇵 Japanese, 🇰🇷 Korean, and 🇻🇳 Vietnamese!\n\n"

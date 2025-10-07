@@ -39,7 +39,12 @@ def build_room_info_keyboard(room, user_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="ℹ️ Инфо", callback_data="room_info")
     ])
 
-    # Second row - Leave/Close button
+    # Second row - Share button
+    keyboard.append([
+        InlineKeyboardButton(text="📤 Поделиться", callback_data="room_share")
+    ])
+
+    # Third row - Leave/Close button
     if room.creator_id == user_id:
         # Creator can close room
         keyboard.append([
