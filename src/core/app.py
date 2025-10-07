@@ -4,6 +4,7 @@ Core application components: Bot, Dispatcher, OpenAI client
 import logging
 import os
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.memory import MemoryStorage
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
@@ -35,9 +36,12 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     raise ValueError("TELEGRAM_BOT_TOKEN and OPENAI_API_KEY must be set as environment variables")
 
+# Initialize FSM storage
+storage = MemoryStorage()
+
 # Initialize global objects using config values
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
-dp = Dispatcher()
+dp = Dispatcher(storage=storage)
 openai_client = AsyncOpenAI(
     api_key=OPENAI_API_KEY,
     timeout=config.openai.timeout_seconds,

@@ -5,6 +5,7 @@ import logging
 from aiogram import F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
 
 from ..core.app import audit_logger
 from ..services.analytics import is_user_disabled, update_user_activity, get_user_preferences
@@ -13,8 +14,10 @@ from ..services.language import detect_language
 from ..utils.room_keyboards import (
     build_rooms_main_menu,
     build_room_info_keyboard,
-    build_members_list_keyboard
+    build_members_list_keyboard,
+    build_language_selection_keyboard
 )
+from ..states.room_states import RoomCreation, RoomJoining
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +25,14 @@ logger = logging.getLogger(__name__)
 def register_handlers(dp):
     """Register room command handlers"""
     dp.message.register(room_command, Command("room"))
+
+    # Register FSM handlers
+    dp.message.register(handle_room_name, RoomCreation.waiting_for_name)
+    dp.callback_query.register(handle_room_language_selection, RoomCreation.waiting_for_language, F.data.startswith("room_lang_"))
+    dp.callback_query.register(handle_join_language_selection, RoomJoining.waiting_for_language, F.data.startswith("room_lang_"))
+    dp.callback_query.register(handle_cancel, F.data == "room_cancel")
+
+    # Register main callback handler
     dp.callback_query.register(room_callback, F.data.startswith("room_"))
 
 
@@ -68,7 +79,15 @@ async def room_command(message: Message):
         await message.reply(text, parse_mode="Markdown", reply_markup=keyboard)
 
 
-async def room_callback(callback: CallbackQuery):
+async def handle_cancel(callback: CallbackQuery, state: FSMContext):
+    """Handle cancel button"""
+    await state.clear()
+    text = "❌ Операция отменена.\n\nИспользуйте /room для возврата в меню."
+    await callback.message.edit_text(text)
+    await callback.answer("Отменено")
+
+
+async def room_callback(callback: CallbackQuery, state: FSMContext):
     """Handle room-related callbacks"""
     user_id = callback.from_user.id
     action = callback.data.split("_", 1)[1]
@@ -83,7 +102,7 @@ async def room_callback(callback: CallbackQuery):
 
     if action == "create":
         # Create a new room
-        await handle_create_room(callback)
+        await handle_create_room(callback, state)
 
     elif action == "join":
         # Show join instructions
@@ -197,28 +216,86 @@ async def room_callback(callback: CallbackQuery):
         await callback.answer()
 
 
-async def handle_create_room(callback: CallbackQuery):
-    """Handle room creation"""
+async def handle_create_room(callback: CallbackQuery, state: FSMContext):
+    """Handle room creation - step 1: ask for room name"""
     user_id = callback.from_user.id
 
     # Check if user already in room
     active_room = await RoomManager.get_active_room(user_id)
     if active_room:
-        await callback.answer(f"❌ Already in room {active_room.code}", show_alert=True)
+        await callback.answer(f"❌ Вы уже в комнате {active_room.code}", show_alert=True)
         return
 
-    # Get user's preferred language
-    prefs = await get_user_preferences(user_id)
-    user_lang = next(iter(prefs)) if prefs else 'en'
+    # Ask for room name
+    text = (
+        "📝 *Создание комнаты*\n\n"
+        "Шаг 1 из 2: Введите название комнаты\n\n"
+        "Например: `Команда разработки`, `Друзья`, `Проект XYZ`\n\n"
+        "Или отправьте `/skip` чтобы пропустить"
+    )
+
+    await callback.message.edit_text(text, parse_mode="Markdown")
+    await state.set_state(RoomCreation.waiting_for_name)
+    await callback.answer()
+
+
+async def handle_room_name(message: Message, state: FSMContext):
+    """Handle room name input"""
+    user_id = message.from_user.id
+    room_name = message.text.strip()
+
+    # Check for skip
+    if room_name.lower() in ['/skip', 'skip', 'пропустить']:
+        room_name = None
+
+    # Validate name length
+    if room_name and len(room_name) > 50:
+        await message.reply(
+            "❌ Название слишком длинное (макс. 50 символов).\n"
+            "Попробуйте ещё раз или отправьте `/skip`"
+        )
+        return
+
+    # Save room name to state
+    await state.update_data(room_name=room_name)
+
+    # Ask for language
+    text = (
+        f"📝 *Создание комнаты*\n\n"
+        f"Название: {room_name or '(без названия)'}\n\n"
+        f"Шаг 2 из 2: Выберите ваш язык"
+    )
+
+    keyboard = build_language_selection_keyboard()
+    await message.reply(text, parse_mode="Markdown", reply_markup=keyboard)
+    await state.set_state(RoomCreation.waiting_for_language)
+
+
+async def handle_room_language_selection(callback: CallbackQuery, state: FSMContext):
+    """Handle language selection for room creation"""
+    user_id = callback.from_user.id
+
+    # Extract language code
+    lang_code = callback.data.replace("room_lang_", "")
+
+    # Get room name from state
+    data = await state.get_data()
+    room_name = data.get('room_name')
 
     # Create room
     try:
-        code = await RoomManager.create_room(user_id, user_lang)
+        code = await RoomManager.create_room(user_id, lang_code, room_name)
+
+        from ..core.constants import SUPPORTED_LANGUAGES
+        lang_info = SUPPORTED_LANGUAGES.get(lang_code, {})
+        lang_flag = lang_info.get('flag', '🏳️')
+        lang_name = lang_info.get('name', lang_code.upper())
 
         text = (
             f"✅ *Комната создана!*\n\n"
+            f"📌 Название: {room_name or '(без названия)'}\n"
             f"🔑 Код комнаты: `{code}`\n"
-            f"🗣️ Ваш язык: {user_lang.upper()}\n\n"
+            f"🗣️ Ваш язык: {lang_flag} {lang_name}\n\n"
             f"*Поделитесь кодом с другими:*\n"
             f"`/room join {code}`\n\n"
             f"💬 Начните отправлять сообщения!\n"
@@ -229,17 +306,21 @@ async def handle_create_room(callback: CallbackQuery):
         keyboard = build_room_info_keyboard(room, user_id)
 
         await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
-        audit_logger.info(f"ROOM_ACTION: User {user_id} created room {code}")
-        await callback.answer(f"✅ Room {code} created!")
+        audit_logger.info(f"ROOM_ACTION: User {user_id} created room {code} with language {lang_code}")
+        await callback.answer(f"✅ Комната {code} создана!")
+
+        # Clear state
+        await state.clear()
 
     except Exception as e:
         logger.error(f"Error creating room: {e}")
-        await callback.answer("❌ Error creating room", show_alert=True)
+        await callback.answer("❌ Ошибка создания комнаты", show_alert=True)
+        await state.clear()
 
 
-async def handle_join_command(message: Message, code: str):
+async def handle_join_command(message: Message, code: str, state: FSMContext):
     """
-    Handle /room join CODE command
+    Handle /room join CODE command - ask for language selection
 
     This is called from the main message handler when it detects 'room join' pattern
     """
@@ -247,40 +328,84 @@ async def handle_join_command(message: Message, code: str):
 
     # Check if user is disabled
     if await is_user_disabled(user_id):
-        await message.reply("❌ Access disabled")
+        await message.reply("❌ Доступ запрещен")
         return
 
     # Update activity
     await update_user_activity(user_id, message.from_user)
 
-    # Get user's preferred language
-    prefs = await get_user_preferences(user_id)
-    user_lang = next(iter(prefs)) if prefs else 'en'
+    # Check if room exists
+    room_data = await RoomManager.get_active_room(user_id)
+    if room_data:
+        await message.reply(f"❌ Вы уже в комнате {room_data.code}")
+        return
+
+    # Check if room code is valid
+    from ..core.app import db
+    room = await db.get_room_by_code(code.upper())
+    if not room:
+        await message.reply(f"❌ Комната {code.upper()} не найдена или закрыта")
+        return
+
+    # Save code to state and ask for language
+    await state.update_data(room_code=code.upper())
+
+    text = (
+        f"🔑 *Присоединение к комнате {code.upper()}*\n\n"
+        f"Выберите ваш язык для перевода:"
+    )
+
+    keyboard = build_language_selection_keyboard()
+    await message.reply(text, parse_mode="Markdown", reply_markup=keyboard)
+    await state.set_state(RoomJoining.waiting_for_language)
+
+
+async def handle_join_language_selection(callback: CallbackQuery, state: FSMContext):
+    """Handle language selection for room joining"""
+    user_id = callback.from_user.id
+
+    # Extract language code
+    lang_code = callback.data.replace("room_lang_", "")
+
+    # Get room code from state
+    data = await state.get_data()
+    room_code = data.get('room_code')
+
+    if not room_code:
+        await callback.answer("❌ Ошибка: код комнаты не найден", show_alert=True)
+        await state.clear()
+        return
 
     # Join room
-    success, msg = await RoomManager.join_room(code.upper(), user_id, user_lang)
+    success, msg = await RoomManager.join_room(room_code, user_id, lang_code)
 
     if success:
         active_room = await RoomManager.get_active_room(user_id)
         members = await RoomManager.get_room_members(active_room.id)
 
+        from ..core.constants import SUPPORTED_LANGUAGES
+        lang_info = SUPPORTED_LANGUAGES.get(lang_code, {})
+        lang_flag = lang_info.get('flag', '🏳️')
+        lang_name = lang_info.get('name', lang_code.upper())
+
         text = (
-            f"✅ *Вы присоединились к комнате {code.upper()}!*\n\n"
+            f"✅ *Вы присоединились к комнате {room_code}!*\n\n"
+            f"📌 Название: {active_room.name or '(без названия)'}\n"
             f"👥 Участники: {len(members)}/{active_room.max_members}\n"
-            f"🗣️ Ваш язык: {user_lang.upper()}\n\n"
+            f"🗣️ Ваш язык: {lang_flag} {lang_name}\n\n"
             f"💬 Начните отправлять сообщения!\n"
             f"Ваши сообщения будут переведены на языки других участников."
         )
 
         keyboard = build_room_info_keyboard(active_room, user_id)
-        await message.reply(text, parse_mode="Markdown", reply_markup=keyboard)
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)
 
         # Notify other members
         for member in members:
             if member.user_id != user_id:
                 try:
                     from ..core.app import bot
-                    user_name = message.from_user.username or message.from_user.first_name or f"Пользователь {user_id}"
+                    user_name = callback.from_user.username or callback.from_user.first_name or f"Пользователь {user_id}"
                     await bot.send_message(
                         member.user_id,
                         f"👋 {user_name} присоединился к комнате!"
@@ -288,6 +413,12 @@ async def handle_join_command(message: Message, code: str):
                 except Exception as e:
                     logger.error(f"Error notifying member {member.user_id}: {e}")
 
-        audit_logger.info(f"ROOM_ACTION: User {user_id} joined room {code}")
+        audit_logger.info(f"ROOM_ACTION: User {user_id} joined room {room_code} with language {lang_code}")
+        await callback.answer(f"✅ Присоединились к {room_code}!")
+
+        # Clear state
+        await state.clear()
     else:
-        await message.reply(msg)
+        await callback.message.edit_text(msg, parse_mode="Markdown")
+        await callback.answer(msg, show_alert=True)
+        await state.clear()

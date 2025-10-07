@@ -4,6 +4,7 @@ Text message handlers
 import logging
 from aiogram import F
 from aiogram.types import Message
+from aiogram.fsm.context import FSMContext
 from ..services.analytics import is_user_disabled, update_user_activity
 from ..services.translation import process_translation
 from ..core.app import audit_logger
@@ -16,7 +17,7 @@ def register_handlers(dp):
     dp.message.register(text_handler, F.text)
 
 
-async def text_handler(message: Message):
+async def text_handler(message: Message, state: FSMContext):
     """Handle text translation"""
     user_id = message.from_user.id
     text = message.text.strip()
@@ -38,10 +39,10 @@ async def text_handler(message: Message):
         from .room_commands import handle_join_command
         code = text.split(maxsplit=2)[2] if len(text.split()) >= 3 else ""
         if code:
-            await handle_join_command(message, code)
+            await handle_join_command(message, code, state)
             return
         else:
-            await message.reply("❌ Please provide a room code: `/room join CODE`", parse_mode="Markdown")
+            await message.reply("❌ Укажите код комнаты: `/room join КОД`", parse_mode="Markdown")
             return
 
     # Check if user is in an active room
