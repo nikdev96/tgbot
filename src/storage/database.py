@@ -49,8 +49,48 @@ class DatabaseManager:
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 );
 
+                CREATE TABLE IF NOT EXISTS rooms (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code TEXT UNIQUE NOT NULL,
+                    creator_id INTEGER NOT NULL,
+                    name TEXT,
+                    status TEXT DEFAULT 'active',
+                    max_members INTEGER DEFAULT 10,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP,
+                    FOREIGN KEY (creator_id) REFERENCES users(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS room_members (
+                    room_id INTEGER,
+                    user_id INTEGER,
+                    language_code TEXT NOT NULL,
+                    role TEXT DEFAULT 'member',
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (room_id, user_id),
+                    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS room_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    room_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    message_text TEXT NOT NULL,
+                    language_code TEXT NOT NULL,
+                    message_type TEXT DEFAULT 'text',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_users_last_activity ON users(last_activity);
                 CREATE INDEX IF NOT EXISTS idx_user_prefs_user_id ON user_language_preferences(user_id);
+                CREATE INDEX IF NOT EXISTS idx_rooms_code ON rooms(code);
+                CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status);
+                CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(user_id);
+                CREATE INDEX IF NOT EXISTS idx_room_messages_room ON room_messages(room_id);
             """)
             conn.commit()
             logger.info("Database initialized successfully")
@@ -637,3 +677,300 @@ class DatabaseManager:
         deleted_size_mb = deleted_size / (1024 * 1024)
         logger.info(f"Cleared {deleted_count} TTS cache files ({deleted_size_mb:.2f} MB)")
         return (deleted_count, deleted_size_mb)
+
+    # ==================== ROOM MANAGEMENT ====================
+
+    async def create_room(self, creator_id: int, language_code: str, name: Optional[str] = None) -> str:
+        """Create a new room and return room code"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._create_room_sync, creator_id, language_code, name
+        )
+
+    def _create_room_sync(self, creator_id: int, language_code: str, name: Optional[str]) -> str:
+        """Synchronous version of create_room"""
+        import random, string
+        from datetime import timedelta
+
+        conn = self._get_connection()
+        try:
+            # Generate unique room code
+            while True:
+                code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+                cursor = conn.execute("SELECT 1 FROM rooms WHERE code = ?", (code,))
+                if not cursor.fetchone():
+                    break
+
+            # Set expiration to 24 hours from now
+            expires_at = (datetime.now() + timedelta(hours=24)).isoformat()
+
+            # Create room
+            cursor = conn.execute("""
+                INSERT INTO rooms (code, creator_id, name, expires_at)
+                VALUES (?, ?, ?, ?)
+            """, (code, creator_id, name, expires_at))
+            room_id = cursor.lastrowid
+
+            # Add creator as first member
+            conn.execute("""
+                INSERT INTO room_members (room_id, user_id, language_code, role)
+                VALUES (?, ?, ?, 'creator')
+            """, (room_id, creator_id, language_code))
+
+            conn.commit()
+            logger.info(f"Room created: {code} by user {creator_id}")
+            return code
+
+        finally:
+            conn.close()
+
+    async def get_room_by_code(self, code: str) -> Optional[Dict]:
+        """Get room by code"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._get_room_by_code_sync, code
+        )
+
+    def _get_room_by_code_sync(self, code: str) -> Optional[Dict]:
+        """Synchronous version of get_room_by_code"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute("""
+                SELECT * FROM rooms WHERE code = ? AND status = 'active'
+            """, (code,))
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return {
+                "id": row["id"],
+                "code": row["code"],
+                "creator_id": row["creator_id"],
+                "name": row["name"],
+                "status": row["status"],
+                "max_members": row["max_members"],
+                "created_at": datetime.fromisoformat(row["created_at"]),
+                "expires_at": datetime.fromisoformat(row["expires_at"]) if row["expires_at"] else None
+            }
+        finally:
+            conn.close()
+
+    async def join_room(self, room_id: int, user_id: int, language_code: str) -> bool:
+        """Join room as member"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._join_room_sync, room_id, user_id, language_code
+        )
+
+    def _join_room_sync(self, room_id: int, user_id: int, language_code: str) -> bool:
+        """Synchronous version of join_room"""
+        conn = self._get_connection()
+        try:
+            # Check if room is full
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count, max_members
+                FROM room_members, rooms
+                WHERE room_members.room_id = ? AND rooms.id = ?
+            """, (room_id, room_id))
+            row = cursor.fetchone()
+
+            if row and row["count"] >= row["max_members"]:
+                logger.warning(f"Room {room_id} is full")
+                return False
+
+            # Add member
+            conn.execute("""
+                INSERT OR REPLACE INTO room_members (room_id, user_id, language_code)
+                VALUES (?, ?, ?)
+            """, (room_id, user_id, language_code))
+
+            conn.commit()
+            logger.info(f"User {user_id} joined room {room_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error joining room: {e}")
+            return False
+        finally:
+            conn.close()
+
+    async def leave_room(self, room_id: int, user_id: int) -> bool:
+        """Leave room"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._leave_room_sync, room_id, user_id
+        )
+
+    def _leave_room_sync(self, room_id: int, user_id: int) -> bool:
+        """Synchronous version of leave_room"""
+        conn = self._get_connection()
+        try:
+            conn.execute("""
+                DELETE FROM room_members WHERE room_id = ? AND user_id = ?
+            """, (room_id, user_id))
+
+            # Check if room is empty, close it
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM room_members WHERE room_id = ?
+            """, (room_id,))
+            if cursor.fetchone()["count"] == 0:
+                conn.execute("""
+                    UPDATE rooms SET status = 'closed' WHERE id = ?
+                """, (room_id,))
+                logger.info(f"Room {room_id} closed (empty)")
+
+            conn.commit()
+            logger.info(f"User {user_id} left room {room_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error leaving room: {e}")
+            return False
+        finally:
+            conn.close()
+
+    async def get_room_members(self, room_id: int) -> List[Dict]:
+        """Get all members of a room"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._get_room_members_sync, room_id
+        )
+
+    def _get_room_members_sync(self, room_id: int) -> List[Dict]:
+        """Synchronous version of get_room_members"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute("""
+                SELECT rm.*, u.username, u.first_name, u.last_name
+                FROM room_members rm
+                JOIN users u ON rm.user_id = u.id
+                WHERE rm.room_id = ?
+                ORDER BY rm.joined_at
+            """, (room_id,))
+
+            members = []
+            for row in cursor.fetchall():
+                members.append({
+                    "room_id": row["room_id"],
+                    "user_id": row["user_id"],
+                    "language_code": row["language_code"],
+                    "role": row["role"],
+                    "joined_at": datetime.fromisoformat(row["joined_at"]),
+                    "user_profile": {
+                        "username": row["username"],
+                        "first_name": row["first_name"],
+                        "last_name": row["last_name"]
+                    }
+                })
+
+            return members
+        finally:
+            conn.close()
+
+    async def get_user_active_room(self, user_id: int) -> Optional[Dict]:
+        """Get user's active room if any"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._get_user_active_room_sync, user_id
+        )
+
+    def _get_user_active_room_sync(self, user_id: int) -> Optional[Dict]:
+        """Synchronous version of get_user_active_room"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute("""
+                SELECT r.*, rm.language_code, rm.role
+                FROM rooms r
+                JOIN room_members rm ON r.id = rm.room_id
+                WHERE rm.user_id = ? AND r.status = 'active'
+                LIMIT 1
+            """, (user_id,))
+
+            row = cursor.fetchone()
+            if not row:
+                return None
+
+            return {
+                "id": row["id"],
+                "code": row["code"],
+                "creator_id": row["creator_id"],
+                "name": row["name"],
+                "status": row["status"],
+                "max_members": row["max_members"],
+                "created_at": datetime.fromisoformat(row["created_at"]),
+                "expires_at": datetime.fromisoformat(row["expires_at"]) if row["expires_at"] else None,
+                "user_language": row["language_code"],
+                "user_role": row["role"]
+            }
+        finally:
+            conn.close()
+
+    async def close_room(self, room_id: int) -> bool:
+        """Close room"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._close_room_sync, room_id
+        )
+
+    def _close_room_sync(self, room_id: int) -> bool:
+        """Synchronous version of close_room"""
+        conn = self._get_connection()
+        try:
+            conn.execute("""
+                UPDATE rooms SET status = 'closed' WHERE id = ?
+            """, (room_id,))
+            conn.commit()
+            logger.info(f"Room {room_id} closed")
+            return True
+        except Exception as e:
+            logger.error(f"Error closing room: {e}")
+            return False
+        finally:
+            conn.close()
+
+    async def save_room_message(self, room_id: int, user_id: int, text: str, language_code: str) -> bool:
+        """Save room message to history"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._save_room_message_sync, room_id, user_id, text, language_code
+        )
+
+    def _save_room_message_sync(self, room_id: int, user_id: int, text: str, language_code: str) -> bool:
+        """Synchronous version of save_room_message"""
+        conn = self._get_connection()
+        try:
+            conn.execute("""
+                INSERT INTO room_messages (room_id, user_id, message_text, language_code)
+                VALUES (?, ?, ?, ?)
+            """, (room_id, user_id, text, language_code))
+            conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error saving room message: {e}")
+            return False
+        finally:
+            conn.close()
+
+    async def delete_expired_rooms(self, hours: int = 24) -> int:
+        """Delete expired rooms"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._delete_expired_rooms_sync, hours
+        )
+
+    def _delete_expired_rooms_sync(self, hours: int) -> int:
+        """Synchronous version of delete_expired_rooms"""
+        conn = self._get_connection()
+        try:
+            now = datetime.now().isoformat()
+
+            # Get count first
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM rooms
+                WHERE expires_at < ? AND status = 'active'
+            """, (now,))
+            count = cursor.fetchone()["count"]
+
+            # Close expired rooms
+            conn.execute("""
+                UPDATE rooms SET status = 'closed'
+                WHERE expires_at < ? AND status = 'active'
+            """, (now,))
+
+            conn.commit()
+            logger.info(f"Closed {count} expired rooms")
+            return count
+        finally:
+            conn.close()
