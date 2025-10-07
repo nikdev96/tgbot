@@ -33,4 +33,23 @@ async def text_handler(message: Message):
         await message.reply("Please send a non-empty message.")
         return
 
+    # Check for /room join CODE command
+    if text.lower().startswith("/room join "):
+        from .room_commands import handle_join_command
+        code = text.split(maxsplit=2)[2] if len(text.split()) >= 3 else ""
+        if code:
+            await handle_join_command(message, code)
+            return
+        else:
+            await message.reply("❌ Please provide a room code: `/room join CODE`", parse_mode="Markdown")
+            return
+
+    # Check if user is in an active room
+    from ..services.room_manager import RoomManager
+    active_room = await RoomManager.get_active_room(user_id)
+    if active_room:
+        # Handle as room message
+        await RoomManager.handle_room_message(message, active_room)
+        return
+
     await process_translation(message, text, source_type="text")
