@@ -36,7 +36,7 @@ def register_handlers(dp):
     dp.callback_query.register(room_callback, F.data.startswith("room_"))
 
 
-async def room_command(message: Message):
+async def room_command(message: Message, state: FSMContext):
     """Handle /room command - main rooms menu"""
     user_id = message.from_user.id
 
@@ -48,6 +48,14 @@ async def room_command(message: Message):
 
     # Update activity
     await update_user_activity(user_id, message.from_user)
+
+    # Check for /room join CODE
+    if message.text:
+        parts = message.text.strip().split()
+        if len(parts) >= 3 and parts[1].lower() == "join":
+            code = parts[2].upper()
+            await handle_join_command(message, code, state)
+            return
 
     # Check if user has active room
     active_room = await RoomManager.get_active_room(user_id)
