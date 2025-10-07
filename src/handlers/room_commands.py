@@ -224,35 +224,27 @@ async def room_callback(callback: CallbackQuery, state: FSMContext):
 
         members = await RoomManager.get_room_members(active_room.id)
 
-        # Create share message
-        from ..core.app import bot
-        bot_info = await bot.get_me()
-        bot_username = bot_info.username
-
-        # Create deep link for quick join
-        deep_link = f"https://t.me/{bot_username}?start=join_{active_room.code}"
-
+        # Create simple share message
         share_text = (
             f"🎉 *Приглашение в комнату переводов!*\n\n"
             f"📌 Название: {active_room.name or '(без названия)'}\n"
-            f"🔑 Код: `{active_room.code}`\n"
+            f"🔑 Код комнаты: `{active_room.code}`\n"
             f"👥 Участников: {len(members)}/{active_room.max_members}\n\n"
-            f"💬 Присоединяйтесь для общения с автопереводом!\n"
-            f"Каждый пишет на своём языке, сообщения переводятся автоматически.\n\n"
-            f"*Два способа присоединиться:*\n"
-            f"1️⃣ Нажмите на кнопку ниже\n"
-            f"2️⃣ Отправьте команду: `/room join {active_room.code}`"
+            f"💬 *Как присоединиться:*\n\n"
+            f"1️⃣ Откройте бот @rurhenbot\n"
+            f"2️⃣ Отправьте команду:\n"
+            f"`/room join {active_room.code}`\n\n"
+            f"Вот и всё! Каждый пишет на своём языке, все сообщения автоматически переводятся 🌍"
         )
 
-        # Create keyboard with join button
+        # Create keyboard
         from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         share_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🚀 Присоединиться к комнате", url=deep_link)],
-            [InlineKeyboardButton(text="◀️ Назад", callback_data="room_info")]
+            [InlineKeyboardButton(text="◀️ Назад к комнате", callback_data="room_info")]
         ])
 
         await callback.message.edit_text(share_text, parse_mode="Markdown", reply_markup=share_keyboard)
-        await callback.answer("📤 Поделитесь этим сообщением!")
+        await callback.answer("📤 Скопируйте и отправьте другу!")
 
 
 async def handle_create_room(callback: CallbackQuery, state: FSMContext):
@@ -335,10 +327,11 @@ async def handle_room_language_selection(callback: CallbackQuery, state: FSMCont
             f"📌 Название: {room_name or '(без названия)'}\n"
             f"🔑 Код комнаты: `{code}`\n"
             f"🗣️ Ваш язык: {lang_flag} {lang_name}\n\n"
-            f"*Поделитесь кодом с другими:*\n"
+            f"*Пригласите друзей:*\n"
+            f"Нажмите кнопку \"📤 Поделиться\" ниже\n\n"
+            f"Или отправьте им эту команду:\n"
             f"`/room join {code}`\n\n"
-            f"💬 Начните отправлять сообщения!\n"
-            f"Они будут автоматически переведены для всех участников."
+            f"💬 Начните отправлять сообщения - они будут автоматически переведены!"
         )
 
         room = await RoomManager.get_active_room(user_id)
