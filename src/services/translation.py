@@ -204,8 +204,8 @@ async def generate_parallel_voice_responses(message: Message, user_id: int, tran
         logger.info(f"Parallel voice responses completed for user {user_id}: {successful_responses} sent")
 
 
-async def process_translation(message: Message, text: str, source_type: str = "text"):
-    """Common translation processing for text and voice"""
+async def process_translation(message: Message, text: str, source_type: str = "text", early_response_msg=None):
+    """Common translation processing for text and voice with early response support"""
     user_id = message.from_user.id
 
     # Check if user is disabled
@@ -252,8 +252,11 @@ async def process_translation(message: Message, text: str, source_type: str = "t
         target_langs = all_langs - {source_lang}
 
     try:
-        # Send instant status message
-        status_msg = await message.reply("🔄 Translating...")
+        # Use existing early_response_msg or create new status message
+        if early_response_msg is None:
+            status_msg = await message.reply("🔄 Translating...")
+        else:
+            status_msg = early_response_msg
 
         # Start translation
         translations = await translate_text(text, source_lang, target_langs)
@@ -268,8 +271,8 @@ async def process_translation(message: Message, text: str, source_type: str = "t
             await message.reply("❌ Translation failed. Please try again.")
             return
 
-        # Send source info for voice messages
-        if source_type == "voice":
+        # For voice messages, send transcription if not already shown (early_response_msg would have it)
+        if source_type == "voice" and early_response_msg is None:
             source_info = SUPPORTED_LANGUAGES[source_lang]
             # Truncate long transcriptions for display
             max_len = config.translation.display_truncate_length
@@ -294,7 +297,10 @@ async def process_translation(message: Message, text: str, source_type: str = "t
     except Exception as e:
         logger.error(f"Translation error: {e}")
         try:
-            await status_msg.delete()
+            if early_response_msg:
+                await early_response_msg.delete()
+            else:
+                await status_msg.delete()
         except:
             pass
         await message.reply("❌ An error occurred. Please try again.")

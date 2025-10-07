@@ -564,3 +564,76 @@ class DatabaseManager:
             return current_prefs
         finally:
             conn.close()
+
+    async def delete_inactive_users(self, days: int = 3) -> int:
+        """Delete users inactive for more than specified days"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._delete_inactive_users_sync, days
+        )
+
+    def _delete_inactive_users_sync(self, days: int) -> int:
+        """Synchronous version of delete_inactive_users"""
+        conn = self._get_connection()
+        try:
+            from datetime import datetime, timedelta
+            threshold = datetime.now() - timedelta(days=days)
+
+            # Get count of users to be deleted
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM users
+                WHERE last_activity < ?
+            """, (threshold.isoformat(),))
+            count = cursor.fetchone()["count"]
+
+            # Delete language preferences first (foreign key constraint)
+            conn.execute("""
+                DELETE FROM user_language_preferences
+                WHERE user_id IN (
+                    SELECT id FROM users WHERE last_activity < ?
+                )
+            """, (threshold.isoformat(),))
+
+            # Delete users
+            conn.execute("""
+                DELETE FROM users WHERE last_activity < ?
+            """, (threshold.isoformat(),))
+
+            conn.commit()
+            logger.info(f"Deleted {count} inactive users (>{days} days)")
+            return count
+        finally:
+            conn.close()
+
+    async def clear_tts_cache(self, days: int = 3) -> tuple[int, float]:
+        """Clear TTS cache files older than specified days"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._clear_tts_cache_sync, days
+        )
+
+    def _clear_tts_cache_sync(self, days: int) -> tuple[int, float]:
+        """Synchronous version of clear_tts_cache"""
+        import os
+        from datetime import datetime, timedelta
+
+        cache_path = Path("data/cache/tts")
+        if not cache_path.exists():
+            return (0, 0.0)
+
+        threshold = datetime.now() - timedelta(days=days)
+        deleted_count = 0
+        deleted_size = 0.0
+
+        for file_path in cache_path.glob("*.ogg"):
+            try:
+                file_mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+                if file_mtime < threshold:
+                    file_size = file_path.stat().st_size
+                    file_path.unlink()
+                    deleted_count += 1
+                    deleted_size += file_size
+            except Exception as e:
+                logger.error(f"Error deleting cache file {file_path}: {e}")
+
+        deleted_size_mb = deleted_size / (1024 * 1024)
+        logger.info(f"Cleared {deleted_count} TTS cache files ({deleted_size_mb:.2f} MB)")
+        return (deleted_count, deleted_size_mb)

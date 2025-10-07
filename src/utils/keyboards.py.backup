@@ -41,28 +41,20 @@ async def build_preferences_keyboard(user_id: int) -> InlineKeyboardMarkup:
 
 
 async def build_admin_dashboard_keyboard() -> InlineKeyboardMarkup:
-    """Build admin dashboard main keyboard with navigation"""
+    """Build admin dashboard keyboard (async)"""
     buttons = [
-        [InlineKeyboardButton(text="👥 Manage Users", callback_data="admin_users")],
-        [InlineKeyboardButton(text="📊 Server Status", callback_data="admin_server_status")],
-        [InlineKeyboardButton(text="🧹 Cleanup & Maintenance", callback_data="admin_cleanup")],
         [InlineKeyboardButton(text="🔄 Refresh", callback_data="admin_refresh")],
     ]
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-async def build_admin_users_keyboard() -> InlineKeyboardMarkup:
-    """Build user management keyboard"""
-    buttons = []
 
     # Get all users from database
     all_users = await db.get_all_users()
-    for user_data in sorted(all_users, key=lambda x: x["last_activity"], reverse=True):
+    for user_data in all_users:
         user_id = user_data["user_id"]
         profile = user_data["user_profile"]
         raw_username = profile["username"] or profile["first_name"] or f"User {user_id}"
         # Limit button text length to prevent callback_data issues
         button_username = raw_username[:15] + "..." if len(raw_username) > 15 else raw_username
+        status = "🔴" if user_data["is_disabled"] else "🟢"
 
         if user_data["is_disabled"]:
             buttons.append([InlineKeyboardButton(
@@ -75,18 +67,4 @@ async def build_admin_users_keyboard() -> InlineKeyboardMarkup:
                 callback_data=f"admin_disable_{user_id}"
             )])
 
-    # Add back button
-    buttons.append([InlineKeyboardButton(text="🔙 Back to Dashboard", callback_data="admin_refresh")])
-
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
-
-
-async def build_admin_cleanup_keyboard() -> InlineKeyboardMarkup:
-    """Build cleanup and maintenance keyboard"""
-    buttons = [
-        [InlineKeyboardButton(text="🗑️ Delete Inactive Users (>3 days)", callback_data="admin_cleanup_users")],
-        [InlineKeyboardButton(text="🧹 Clear TTS Cache", callback_data="admin_cleanup_cache")],
-        [InlineKeyboardButton(text="♻️ Full Cleanup (All)", callback_data="admin_cleanup_all")],
-        [InlineKeyboardButton(text="🔙 Back to Dashboard", callback_data="admin_refresh")],
-    ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

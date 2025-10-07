@@ -1,5 +1,5 @@
 """
-Voice and audio message handlers with forced ffmpeg fallback for Python 3.13
+Voice and audio message handlers
 """
 import logging
 import shutil
@@ -7,17 +7,10 @@ from aiogram import F
 from aiogram.types import Message
 from ..core.app import bot, config, audit_logger
 from ..services.analytics import is_user_disabled
+from ..services.voice import download_and_convert_audio, transcribe_audio
 from ..services.translation import process_translation
 
 logger = logging.getLogger(__name__)
-
-# Force use of ffmpeg version due to Python 3.13 audioop issue
-try:
-    from ..services.voice_fix import download_and_convert_audio_ffmpeg as download_and_convert_audio, transcribe_audio
-    logger.info("Using ffmpeg fallback for audio processing (Python 3.13 compatibility)")
-except ImportError as e:
-    logger.error(f"Failed to import ffmpeg fallback: {e}")
-    raise
 
 
 def register_handlers(dp):
@@ -59,59 +52,45 @@ async def voice_handler(message: Message):
             await status_msg.edit_text(f"❌ Audio too long. Please send messages under {minutes} minutes.")
             return
 
-        await status_msg.edit_text("🔄 Processing audio...")
+        await status_msg.edit_text("🔄 Downloading audio...")
 
-        # PARALLEL OPTIMIZATION: Download+convert and prepare for transcription in one step
+        # Check if pydub and ffmpeg are available
         try:
-            # Start download and conversion
+            # Download and convert audio
             audio_path = await download_and_convert_audio(file_info.file_path)
             temp_dir = audio_path.parent
-            logger.info(f"Audio processed successfully: {audio_path}")
-
-            # Immediately start transcription (no extra status update delay)
-            transcription = await transcribe_audio(audio_path)
-            logger.info(f"Transcription successful: {len(transcription)} characters")
-
+        except ImportError as e:
+            await status_msg.edit_text("❌ Audio processing not available. pydub is required.")
+            logger.error(f"pydub import error: {e}")
+            return
         except Exception as e:
             if "ffmpeg" in str(e).lower():
                 await status_msg.edit_text("❌ Audio processing requires FFmpeg. Please install FFmpeg first.")
                 logger.error(f"FFmpeg error: {e}")
-                return
-            elif "transcription" in str(e).lower() or "whisper" in str(e).lower():
-                await status_msg.edit_text("❌ Could not transcribe audio. Please try again with clearer speech.")
-                logger.error(f"Transcription error: {e}")
                 return
             else:
                 await status_msg.edit_text("❌ Audio processing failed. Please try again.")
                 logger.error(f"Audio processing error: {e}")
                 return
 
+        await status_msg.edit_text("🗣️ Transcribing audio...")
+
+        # Transcribe using Whisper
+        try:
+            transcription = await transcribe_audio(audio_path)
+        except Exception as e:
+            await status_msg.edit_text("❌ Could not transcribe audio. Please try again with clearer speech.")
+            logger.error(f"Transcription error: {e}")
+            return
+
         if not transcription.strip():
             await status_msg.edit_text("❌ Could not transcribe audio. Please try again with clearer speech.")
             return
 
-        # EARLY RESPONSE: Show transcription immediately
-        from ..services.language import detect_language
-        from ..core.constants import SUPPORTED_LANGUAGES
-        from ..utils.formatting import escape_markdown
+        await status_msg.delete()
 
-        source_lang = detect_language(transcription)
-        if source_lang:
-            source_info = SUPPORTED_LANGUAGES[source_lang]
-            max_len = 200
-            display_text = transcription if len(transcription) <= max_len else transcription[:max_len-3] + "..."
-            escaped_text = escape_markdown(display_text)
-            await status_msg.edit_text(
-                f"🎤 {source_info['flag']} Transcribed ({source_info['name']}):\n"
-                f"_{escaped_text}_\n\n"
-                f"🔄 Translating...",
-                parse_mode="Markdown"
-            )
-        else:
-            await status_msg.delete()
-
-        # Process translation using existing logic (now with early transcription shown)
-        await process_translation(message, transcription, source_type="voice", early_response_msg=status_msg)
+        # Process translation using existing logic
+        await process_translation(message, transcription, source_type="voice")
 
     except Exception as e:
         logger.error(f"Voice processing error: {e}")
