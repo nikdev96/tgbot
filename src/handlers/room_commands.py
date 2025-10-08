@@ -186,13 +186,15 @@ async def room_callback(callback: CallbackQuery, state: FSMContext):
             return
 
         from ..core.constants import SUPPORTED_LANGUAGES
+        from ..utils.formatting import escape_markdown
 
         text = f"👥 *Комната {active_room.code} - Участники*\n\n"
         for member in members:
             lang_info = SUPPORTED_LANGUAGES.get(member.language_code, {})
             flag = lang_info.get('flag', '🏳️')
             role = "👑" if member.is_creator() else "👤"
-            text += f"{role} {flag} {member.display_name()}\n"
+            name = escape_markdown(member.display_name())
+            text += f"{role} {flag} {name}\n"
 
         keyboard = build_members_list_keyboard(active_room)
         await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=keyboard)

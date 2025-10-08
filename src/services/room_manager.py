@@ -172,9 +172,13 @@ class RoomManager:
             text: Message text
             source_lang: Source language code
         """
+        logger.info(f"🔍 DEBUG: broadcast_message called - room_id={room_id}, sender_id={sender_id}, text_len={len(text)}")
+
         # Get all members except sender
         members = await RoomManager.get_room_members(room_id)
         other_members = [m for m in members if m.user_id != sender_id]
+
+        logger.info(f"🔍 DEBUG: Room has {len(members)} members, {len(other_members)} recipients")
 
         if not other_members:
             logger.info(f"No other members in room {room_id}")
@@ -189,7 +193,7 @@ class RoomManager:
         sender_name = sender.display_name()
         sender_flag = SUPPORTED_LANGUAGES.get(source_lang, {}).get('flag', '🏳️')
 
-        # Collect target languages
+        # Collect target languages from room members
         target_langs = {m.language_code for m in other_members}
 
         # Remove source language from targets
@@ -200,7 +204,7 @@ class RoomManager:
             logger.info(f"All members speak {source_lang}, no translation needed")
             return
 
-        # Translate to all target languages
+        # Translate to all unique target languages in the room
         translations = await translate_text(text, source_lang, target_langs)
 
         if not translations:
@@ -233,16 +237,26 @@ class RoomManager:
         logger.info(f"Message broadcast in room {room_id}: {len(other_members)} recipients")
 
     @staticmethod
-    async def handle_room_message(message: Message, room: Room):
+    async def handle_room_message(message: Message, room: Room, text: Optional[str] = None):
         """
         Handle message in room context
 
         Args:
             message: Telegram message
             room: Room object
+            text: Optional text override (for voice transcriptions)
         """
         user_id = message.from_user.id
-        text = message.text
+
+        logger.info(f"🔍 DEBUG: handle_room_message called - user_id={user_id}, room={room.code}, message_id={message.message_id}, text_provided={text is not None}")
+
+        # Use provided text or get from message
+        if text is None:
+            text = message.text
+
+        if not text:
+            await message.reply("❌ Empty message")
+            return
 
         # Detect language
         source_lang = detect_language(text)
@@ -252,6 +266,8 @@ class RoomManager:
             )
             return
 
+        logger.info(f"🔍 DEBUG: Broadcasting message - room_id={room.id}, sender={user_id}, lang={source_lang}")
+
         # Broadcast to other members
         await RoomManager.broadcast_message(
             message,
@@ -260,6 +276,8 @@ class RoomManager:
             text,
             source_lang
         )
+
+        logger.info(f"🔍 DEBUG: Broadcast completed - room_id={room.id}, sender={user_id}")
 
 
 # Global instance

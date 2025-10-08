@@ -37,6 +37,10 @@ async def voice_handler(message: Message):
         )
         return
 
+    # Check if user is in an active room
+    from ..services.room_manager import RoomManager
+    active_room = await RoomManager.get_active_room(user_id)
+
     status_msg = await message.reply("🎤 Processing voice message...")
     temp_dir = None
 
@@ -109,6 +113,14 @@ async def voice_handler(message: Message):
             )
         else:
             await status_msg.delete()
+
+        # If user is in a room, handle as room message
+        if active_room:
+            logger.info(f"🔍 DEBUG: User {user_id} in room {active_room.code}, calling handle_room_message")
+            await status_msg.delete()
+            await RoomManager.handle_room_message(message, active_room, transcription)
+            logger.info(f"🔍 DEBUG: handle_room_message completed for user {user_id}")
+            return
 
         # Process translation using existing logic (now with early transcription shown)
         await process_translation(message, transcription, source_type="voice", early_response_msg=status_msg)

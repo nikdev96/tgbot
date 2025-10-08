@@ -244,12 +244,24 @@ async def process_translation(message: Message, text: str, source_type: str = "t
         return
 
     target_langs = await get_user_preferences(message.from_user.id)
-    if source_lang in target_langs:
-        target_langs = target_langs - {source_lang}
 
+    # If user has no preferences, translate to all languages
     if not target_langs:
         all_langs = set(SUPPORTED_LANGUAGES.keys())
         target_langs = all_langs - {source_lang}
+    else:
+        # Remove source language from user preferences
+        if source_lang in target_langs:
+            target_langs = target_langs - {source_lang}
+
+        # If after removing source lang there are no targets, don't translate at all
+        if not target_langs:
+            await message.reply(
+                f"✅ Message detected in {SUPPORTED_LANGUAGES[source_lang]['name']}.\n\n"
+                f"💡 You only have {SUPPORTED_LANGUAGES[source_lang]['name']} selected for translation.\n"
+                f"Use /settings to add more languages."
+            )
+            return
 
     try:
         # Use existing early_response_msg or create new status message
