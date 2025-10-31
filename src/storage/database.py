@@ -202,8 +202,8 @@ class DatabaseManager:
                 )
                 existing_preferences = {prow["language_code"] for prow in prefs_cursor.fetchall()}
 
-                # Use existing preferences if any, otherwise default
-                preferences = existing_preferences if existing_preferences else {"ru", "en", "th", "ja", "ko", "vi"}
+                # Use existing preferences if any, otherwise default to Russian and Thai
+                preferences = existing_preferences if existing_preferences else {"ru", "th"}
 
                 analytics = {
                     "is_disabled": False,
@@ -271,6 +271,50 @@ class DatabaseManager:
             conn.commit()
             logger.info(f"Added Vietnamese to {len(users_without_vi)} existing users")
 
+        except Exception as e:
+            logger.error(f"Error adding Vietnamese to users: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+
+    async def replace_japanese_with_arabic(self):
+        """Replace Japanese (ja) with Arabic (ar) in all user preferences"""
+        await asyncio.get_event_loop().run_in_executor(
+            None, self._replace_japanese_with_arabic_sync
+        )
+
+    def _replace_japanese_with_arabic_sync(self):
+        """Synchronous version of replace_japanese_with_arabic"""
+        conn = self._get_connection()
+        try:
+            # Replace Japanese with Arabic in user preferences
+            conn.execute("""
+                UPDATE user_language_preferences
+                SET language_code = 'ar'
+                WHERE language_code = 'ja'
+            """)
+
+            # Replace Japanese with Arabic in room members
+            conn.execute("""
+                UPDATE room_members
+                SET language_code = 'ar'
+                WHERE language_code = 'ja'
+            """)
+
+            # Replace Japanese with Arabic in room messages
+            conn.execute("""
+                UPDATE room_messages
+                SET language_code = 'ar'
+                WHERE language_code = 'ja'
+            """)
+
+            rows_updated = conn.total_changes
+            conn.commit()
+            logger.info(f"Replaced Japanese with Arabic: {rows_updated} records updated")
+
+        except Exception as e:
+            logger.error(f"Error replacing Japanese with Arabic: {e}")
+            conn.rollback()
         finally:
             conn.close()
 
@@ -591,9 +635,9 @@ class DatabaseManager:
             """, (user_id,))
             current_prefs = {row["language_code"] for row in cursor.fetchall()}
 
-            # If no preferences left, restore all default languages
+            # If no preferences left, restore default languages (Russian and Thai)
             if not current_prefs:
-                default_langs = {"ru", "en", "th", "ja", "ko", "vi"}
+                default_langs = {"ru", "th"}
                 for lang in default_langs:
                     conn.execute("""
                         INSERT OR IGNORE INTO user_language_preferences (user_id, language_code) VALUES (?, ?)

@@ -283,10 +283,10 @@ async def process_translation(message: Message, text: str, source_type: str = "t
     # Filter out invalid language codes
     target_langs = {lang for lang in target_langs if lang in SUPPORTED_LANGUAGES}
 
-    # If user has no preferences, translate to all languages
+    # If user has no preferences, use default languages (Russian and Thai)
     if not target_langs:
-        all_langs = set(SUPPORTED_LANGUAGES.keys())
-        target_langs = all_langs - {source_lang}
+        default_langs = {"ru", "th"}
+        target_langs = default_langs - {source_lang}
     else:
         # Remove source language from user preferences
         if source_lang in target_langs:
