@@ -208,23 +208,34 @@ class RoomManager:
         translations = await translate_text(text, source_lang, target_langs)
 
         if not translations:
-            logger.error(f"Translation failed for room {room_id}")
+            logger.error(f"Translation completely failed for room {room_id}")
             await message.reply("❌ Translation failed")
             return
 
+        # Check for incomplete translations
+        missing_langs = target_langs - set(translations.keys())
+        if missing_langs:
+            logger.warning(f"Incomplete translation in room {room_id}. Missing: {missing_langs}")
+
         # Send translated messages to each member
         for member in other_members:
-            if member.language_code not in translations:
-                continue
-
-            translation = translations[member.language_code]
             target_flag = SUPPORTED_LANGUAGES.get(member.language_code, {}).get('flag', '🏳️')
 
-            # Format message
-            formatted_message = (
-                f"💬 {sender_name} {sender_flag}:\n"
-                f"→ {target_flag} {translation}"
-            )
+            if member.language_code not in translations:
+                # Fallback: send original message with warning
+                logger.warning(f"No translation for user {member.user_id} (lang: {member.language_code}), sending original")
+                formatted_message = (
+                    f"💬 {sender_name} {sender_flag}:\n"
+                    f"⚠️ Translation unavailable. Original message:\n"
+                    f"{text}"
+                )
+            else:
+                translation = translations[member.language_code]
+                # Format message
+                formatted_message = (
+                    f"💬 {sender_name} {sender_flag}:\n"
+                    f"→ {target_flag} {translation}"
+                )
 
             try:
                 await bot.send_message(member.user_id, formatted_message)

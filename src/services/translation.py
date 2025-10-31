@@ -3,6 +3,7 @@ Translation service with text translation and voice response capabilities
 """
 import asyncio
 import hashlib
+import json
 import logging
 import shutil
 import tempfile
@@ -29,7 +30,7 @@ persistent_tts_cache = get_persistent_tts_cache()
 
 
 async def translate_text(text: str, source_lang: str, target_langs: Set[str]) -> Dict[str, str]:
-    """Translate text to target languages with retry logic"""
+    """Translate text to target languages with retry logic and JSON parsing"""
     if source_lang in target_langs:
         target_langs = target_langs - {source_lang}
 
@@ -42,13 +43,20 @@ async def translate_text(text: str, source_lang: str, target_langs: Set[str]) ->
         logger.info(f"Cache hit for translation: {text[:50]}...")
         return translation_cache[cache_key]
 
-    target_names = [SUPPORTED_LANGUAGES[lang]["name"] for lang in target_langs]
-    prompt = f"""Translate this {SUPPORTED_LANGUAGES[source_lang]["name"]} text into {', '.join(target_names)}.
+    # Build JSON schema for response
+    target_langs_list = sorted(list(target_langs))
+    json_example = {lang: f"translation in {SUPPORTED_LANGUAGES[lang]['name']}" for lang in target_langs_list}
 
-Provide only the translations, one per line:
-{chr(10).join(f'{SUPPORTED_LANGUAGES[lang]["name"]}: [translation]' for lang in target_langs)}
+    prompt = f"""Translate this {SUPPORTED_LANGUAGES[source_lang]["name"]} text into the following languages.
 
-Text: {text}"""
+IMPORTANT: Preserve all emojis exactly as they appear in the original text.
+
+Target languages: {', '.join([SUPPORTED_LANGUAGES[lang]["name"] for lang in target_langs_list])}
+
+Respond with ONLY valid JSON in this exact format:
+{json.dumps(json_example, ensure_ascii=False, indent=2)}
+
+Text to translate: {text}"""
 
     for attempt in range(config.translation.max_retries):
         try:
@@ -56,28 +64,55 @@ Text: {text}"""
                 model=config.openai.model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=config.translation.max_tokens,
-                temperature=0.3
+                temperature=0.3,
+                response_format={"type": "json_object"}
             )
 
             content = response.choices[0].message.content.strip()
+
+            # Parse JSON response
+            parsed_response = json.loads(content)
+
             translations = {}
 
-            for line in content.split('\n'):
-                if ':' in line:
-                    lang_name, translation = line.split(':', 1)
-                    lang_name = lang_name.strip()
-                    translation = translation.strip()
+            # Map language codes from response
+            for lang_code in target_langs:
+                # Try exact language code match
+                if lang_code in parsed_response:
+                    translations[lang_code] = parsed_response[lang_code]
+                # Try language name match
+                elif SUPPORTED_LANGUAGES[lang_code]["name"] in parsed_response:
+                    translations[lang_code] = parsed_response[SUPPORTED_LANGUAGES[lang_code]["name"]]
+                # Try lowercase variations
+                elif lang_code.lower() in parsed_response:
+                    translations[lang_code] = parsed_response[lang_code.lower()]
+                elif SUPPORTED_LANGUAGES[lang_code]["name"].lower() in parsed_response:
+                    translations[lang_code] = parsed_response[SUPPORTED_LANGUAGES[lang_code]["name"].lower()]
 
-                    for code, info in SUPPORTED_LANGUAGES.items():
-                        if info["name"] == lang_name and code in target_langs:
-                            translations[code] = translation
-                            break
+            # Validate completeness
+            missing_langs = target_langs - set(translations.keys())
+            if missing_langs:
+                logger.warning(f"Incomplete translation. Requested: {len(target_langs)}, Got: {len(translations)}, Missing: {missing_langs}")
+                logger.debug(f"Response keys: {list(parsed_response.keys())}")
+                # If we got at least some translations, use them
+                if not translations:
+                    # Complete failure, retry
+                    if attempt < config.translation.max_retries - 1:
+                        await asyncio.sleep(config.translation.retry_delay_base ** attempt)
+                        continue
+                    return {}
 
             # Cache successful translations
             translation_cache[cache_key] = translations
-            logger.info(f"Translation cached for: {text[:50]}...")
+            logger.info(f"Translation successful: {len(translations)}/{len(target_langs)} languages for text: {text[:50]}...")
             return translations
 
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error (attempt {attempt + 1}): {e}, Response: {content[:200]}")
+            if attempt < config.translation.max_retries - 1:
+                await asyncio.sleep(config.translation.retry_delay_base ** attempt)
+                continue
+            return {}
         except Exception as e:
             logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
             if attempt < config.translation.max_retries - 1:
