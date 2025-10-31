@@ -19,10 +19,6 @@ async def main():
         await db.init_db()
         logger.info("Database initialized successfully")
 
-        # Add Vietnamese to existing users
-        await db.add_vietnamese_to_existing_users()
-        logger.info("Vietnamese language added to existing users")
-
         # Perform automatic cleanup on startup
         logger.info("Running automatic cleanup on startup...")
         deleted_users = await db.delete_inactive_users(days=3)
