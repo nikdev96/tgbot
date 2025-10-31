@@ -41,7 +41,9 @@ async def show_menu_callback(callback: CallbackQuery):
     await update_user_activity(user_id, callback.from_user)
 
     prefs = await get_user_preferences(user_id)
-    enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in prefs]
+    # Filter out invalid language codes
+    valid_prefs = [lang for lang in prefs if lang in SUPPORTED_LANGUAGES]
+    enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in valid_prefs]
 
     text = (
         "⚙️ **Language Preferences**\n\n"
@@ -72,7 +74,9 @@ async def toggle_preference(callback: CallbackQuery):
         # Handle voice replies toggle
         voice_enabled = await toggle_voice_replies(user_id)
         prefs = await get_user_preferences(user_id)
-        enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in prefs]
+        # Filter out invalid language codes
+        valid_prefs = [lang for lang in prefs if lang in SUPPORTED_LANGUAGES]
+        enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in valid_prefs]
 
         status_msg = "enabled" if voice_enabled else "disabled"
         callback_msg = f"✅ Voice replies {status_msg}"
@@ -84,7 +88,9 @@ async def toggle_preference(callback: CallbackQuery):
             return
 
         prefs = await update_user_preference(user_id, lang_code)
-        enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in prefs]
+        # Filter out invalid language codes
+        valid_prefs = [lang for lang in prefs if lang in SUPPORTED_LANGUAGES]
+        enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in valid_prefs]
         callback_msg = f"✅ Updated preferences: {', '.join(enabled)}"
 
     keyboard = await build_preferences_keyboard(user_id)

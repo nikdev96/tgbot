@@ -280,6 +280,9 @@ async def process_translation(message: Message, text: str, source_type: str = "t
 
     target_langs = await get_user_preferences(message.from_user.id)
 
+    # Filter out invalid language codes
+    target_langs = {lang for lang in target_langs if lang in SUPPORTED_LANGUAGES}
+
     # If user has no preferences, translate to all languages
     if not target_langs:
         all_langs = set(SUPPORTED_LANGUAGES.keys())
