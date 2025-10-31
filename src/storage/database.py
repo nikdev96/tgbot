@@ -202,8 +202,8 @@ class DatabaseManager:
                 )
                 existing_preferences = {prow["language_code"] for prow in prefs_cursor.fetchall()}
 
-                # Use existing preferences if any, otherwise default to Russian and Thai
-                preferences = existing_preferences if existing_preferences else {"ru", "th"}
+                # Use existing preferences if any, otherwise default to Russian, English, Thai
+                preferences = existing_preferences if existing_preferences else {"ru", "en", "th"}
 
                 analytics = {
                     "is_disabled": False,
@@ -635,9 +635,9 @@ class DatabaseManager:
             """, (user_id,))
             current_prefs = {row["language_code"] for row in cursor.fetchall()}
 
-            # If no preferences left, restore default languages (Russian and Thai)
+            # If no preferences left, restore default languages (Russian, English, Thai)
             if not current_prefs:
-                default_langs = {"ru", "th"}
+                default_langs = {"ru", "en", "th"}
                 for lang in default_langs:
                     conn.execute("""
                         INSERT OR IGNORE INTO user_language_preferences (user_id, language_code) VALUES (?, ?)
