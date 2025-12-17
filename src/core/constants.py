@@ -14,6 +14,9 @@ SUPPORTED_LANGUAGES: Dict[str, Dict[str, str]] = {
     "vi": {"name": "Vietnamese", "flag": "🇻🇳"}
 }
 
+# Default languages for new users
+DEFAULT_LANGUAGES: Set[str] = {"ru", "en", "th"}
+
 # Load ADMIN_IDS from environment
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 if ADMIN_USER_ID:

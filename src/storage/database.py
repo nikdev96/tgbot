@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Set, List
 from contextlib import asynccontextmanager
+from ..core.constants import DEFAULT_LANGUAGES
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ class DatabaseManager:
 
             # Return default if no preferences found
             if not preferences:
-                return {"ru", "en", "th", "ja", "ko", "vi"}  # Default supported languages
+                return DEFAULT_LANGUAGES
 
             return preferences
         finally:
@@ -190,7 +191,7 @@ class DatabaseManager:
                 )
                 preferences = {prow["language_code"] for prow in prefs_cursor.fetchall()}
                 if not preferences:
-                    preferences = {"ru", "en", "th", "ja", "ko", "vi"}  # Default supported languages
+                    preferences = DEFAULT_LANGUAGES
 
                 analytics["preferred_targets"] = preferences
                 return analytics
@@ -202,8 +203,8 @@ class DatabaseManager:
                 )
                 existing_preferences = {prow["language_code"] for prow in prefs_cursor.fetchall()}
 
-                # Use existing preferences if any, otherwise default to Russian, English, Thai
-                preferences = existing_preferences if existing_preferences else {"ru", "en", "th"}
+                # Use existing preferences if any, otherwise use default languages
+                preferences = existing_preferences if existing_preferences else DEFAULT_LANGUAGES
 
                 analytics = {
                     "is_disabled": False,
@@ -635,14 +636,13 @@ class DatabaseManager:
             """, (user_id,))
             current_prefs = {row["language_code"] for row in cursor.fetchall()}
 
-            # If no preferences left, restore default languages (Russian, English, Thai)
+            # If no preferences left, restore default languages
             if not current_prefs:
-                default_langs = {"ru", "en", "th"}
-                for lang in default_langs:
+                for lang in DEFAULT_LANGUAGES:
                     conn.execute("""
                         INSERT OR IGNORE INTO user_language_preferences (user_id, language_code) VALUES (?, ?)
                     """, (user_id, lang))
-                current_prefs = default_langs
+                current_prefs = DEFAULT_LANGUAGES
 
             conn.commit()
             return current_prefs

@@ -1,0 +1,16 @@
+# Locked dependencies for production deployment
+# Generated on 2024-12-17
+# Use this file to ensure consistent builds across environments
+#
+# To install: pip install -r requirements.lock.txt
+# To update: Update requirements.txt first, then run:
+#   pip install -r requirements.txt && pip freeze > requirements.lock.txt
+
+aiogram==3.22.0
+cachetools==6.2.0
+langdetect==1.0.9
+openai==1.108.1
+psutil==7.1.0
+pydub==0.25.1
+python-dotenv==1.1.1
+PyYAML==6.0.3

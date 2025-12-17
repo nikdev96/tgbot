@@ -3,6 +3,7 @@ Core application components: Bot, Dispatcher, OpenAI client
 """
 import logging
 import os
+import re
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from openai import AsyncOpenAI
@@ -33,8 +34,32 @@ audit_logger.setLevel(logging.INFO)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
-    raise ValueError("TELEGRAM_BOT_TOKEN and OPENAI_API_KEY must be set as environment variables")
+def validate_env_vars():
+    """Validate required environment variables"""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_BOT_TOKEN.strip():
+        raise ValueError("TELEGRAM_BOT_TOKEN must be set and not empty")
+
+    # Telegram bot token format: <bot_id>:<bot_token>
+    # Example: 123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+    if not re.match(r'^\d+:[A-Za-z0-9_-]+$', TELEGRAM_BOT_TOKEN):
+        raise ValueError(
+            "TELEGRAM_BOT_TOKEN format is invalid. "
+            "Expected format: <bot_id>:<bot_token> (e.g., 123456789:ABCdefGHI...)"
+        )
+
+    if not OPENAI_API_KEY or not OPENAI_API_KEY.strip():
+        raise ValueError("OPENAI_API_KEY must be set and not empty")
+
+    # OpenAI API keys should start with 'sk-'
+    if not OPENAI_API_KEY.startswith('sk-'):
+        logger.warning(
+            "OPENAI_API_KEY does not start with 'sk-'. "
+            "This may indicate an invalid API key format."
+        )
+
+# Validate environment variables on startup
+validate_env_vars()
+logger.info("Environment variables validated successfully")
 
 # Initialize FSM storage
 storage = MemoryStorage()

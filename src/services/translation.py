@@ -10,10 +10,11 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Set, Optional
 from aiogram.types import Message, FSInputFile
+from aiogram.exceptions import TelegramBadRequest
 from openai import AsyncOpenAI
 
 from ..core.app import openai_client, config, audit_logger
-from ..core.constants import SUPPORTED_LANGUAGES
+from ..core.constants import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGES
 from ..core.cache import get_translation_cache, get_persistent_tts_cache
 from ..services.analytics import (
     is_user_disabled, update_user_activity, get_user_preferences,
@@ -283,10 +284,9 @@ async def process_translation(message: Message, text: str, source_type: str = "t
     # Filter out invalid language codes
     target_langs = {lang for lang in target_langs if lang in SUPPORTED_LANGUAGES}
 
-    # If user has no preferences, use default languages (Russian, English, Thai)
+    # If user has no preferences, use default languages
     if not target_langs:
-        default_langs = {"ru", "en", "th"}
-        target_langs = default_langs - {source_lang}
+        target_langs = DEFAULT_LANGUAGES - {source_lang}
     else:
         # Remove source language from user preferences
         if source_lang in target_langs:
@@ -314,8 +314,8 @@ async def process_translation(message: Message, text: str, source_type: str = "t
         # Delete status message
         try:
             await status_msg.delete()
-        except:
-            pass  # Ignore if deletion fails
+        except TelegramBadRequest as e:
+            logger.debug(f"Status message already deleted or not found: {e}")
 
         if not translations:
             await message.reply("❌ Translation failed. Please try again.")
@@ -351,6 +351,6 @@ async def process_translation(message: Message, text: str, source_type: str = "t
                 await early_response_msg.delete()
             else:
                 await status_msg.delete()
-        except:
-            pass
+        except TelegramBadRequest as delete_error:
+            logger.debug(f"Could not delete status message: {delete_error}")
         await message.reply("❌ An error occurred. Please try again.")
