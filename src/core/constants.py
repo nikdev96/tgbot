@@ -9,7 +9,7 @@ SUPPORTED_LANGUAGES: Dict[str, Dict[str, str]] = {
     "ru": {"name": "Russian", "flag": "🇷🇺"},
     "en": {"name": "English", "flag": "🇺🇸"},
     "th": {"name": "Thai", "flag": "🇹🇭"},
-    "ja": {"name": "Japanese", "flag": "🇯🇵"},
+    "ar": {"name": "Arabic", "flag": "🇸🇦"},
     "ko": {"name": "Korean", "flag": "🇰🇷"},
     "vi": {"name": "Vietnamese", "flag": "🇻🇳"}
 }

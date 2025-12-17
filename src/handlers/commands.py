@@ -53,12 +53,15 @@ async def start_handler(message: Message):
 
     text = (
         "🌍 **Translation Bot**\n\n"
-        "I translate between 6 languages: 🇷🇺 Russian, 🇺🇸 English, 🇹🇭 Thai, 🇯🇵 Japanese, 🇰🇷 Korean, and 🇻🇳 Vietnamese!\n\n"
-        "**How it works:**\n"
-        "• Send text or voice messages in supported languages\n"
-        "• I'll detect the language and translate to your enabled targets\n"
-        "• Use /menu to customize which languages you want\n\n"
-        "**Voice messages:** Send voice notes and I'll transcribe + translate!\n\n"
+        "I translate between 6 languages: 🇷🇺 Russian, 🇺🇸 English, 🇹🇭 Thai, 🇸🇦 Arabic, 🇰🇷 Korean, and 🇻🇳 Vietnamese!\n\n"
+        "**Features:**\n"
+        "• 📝 Text & 🎤 Voice translation with auto-detection\n"
+        "• 🏠 Translation Rooms - Multi-user chat with auto-translation\n"
+        "• 🔊 TTS voice responses (optional)\n"
+        "• ⚙️ Customizable language preferences\n\n"
+        "**Commands:**\n"
+        "• /menu - Language settings\n"
+        "• /room - Create or join translation room\n\n"
         "Try sending a message or tap the button below:"
     )
 

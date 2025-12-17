@@ -38,12 +38,12 @@ def detect_language(text: str) -> str:
         # Mixed language detection - if contains multiple scripts, return None
         has_cyrillic = bool(re.search(r'[а-яё]', text.lower()))
         has_latin = bool(re.search(r'[a-zA-Z]', text))
-        has_japanese = bool(re.search(r'[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]', text))
+        has_arabic = bool(re.search(r'[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]', text))
         has_korean = bool(re.search(r'[가-힣\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]', text))
         has_thai = bool(re.search(r'[\u0e00-\u0e7f]', text))
         has_vietnamese = bool(re.search(r'[àáảãạầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộùúủũụừứửữựỳýỷỹỵđĐ]', text))
 
-        script_count = sum([has_cyrillic, has_latin, has_japanese, has_korean, has_thai, has_vietnamese])
+        script_count = sum([has_cyrillic, has_latin, has_arabic, has_korean, has_thai, has_vietnamese])
         if script_count > 1:
             return None  # Mixed languages
 
@@ -51,9 +51,9 @@ def detect_language(text: str) -> str:
         if has_cyrillic:
             return 'ru'
 
-        # Japanese: Hiragana, Katakana, Kanji
-        if has_japanese:
-            return 'ja'
+        # Arabic: Arabic script (supports all Arabic ranges including extended)
+        if has_arabic:
+            return 'ar'
 
         # Korean: Hangul
         if has_korean:
@@ -102,19 +102,19 @@ def detect_language(text: str) -> str:
         # Fallback to heuristic detection using same logic as above
         has_cyrillic = bool(re.search(r'[а-яё]', text.lower()))
         has_latin = bool(re.search(r'[a-zA-Z]', text))
-        has_japanese = bool(re.search(r'[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]', text))
+        has_arabic = bool(re.search(r'[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff\ufb50-\ufdff\ufe70-\ufeff]', text))
         has_korean = bool(re.search(r'[가-힣\u1100-\u11ff\u3130-\u318f\uac00-\ud7af]', text))
         has_thai = bool(re.search(r'[\u0e00-\u0e7f]', text))
         has_vietnamese = bool(re.search(r'[àáảãạầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộùúủũụừứửữựỳýỷỹỵđĐ]', text))
 
-        script_count = sum([has_cyrillic, has_latin, has_japanese, has_korean, has_thai, has_vietnamese])
+        script_count = sum([has_cyrillic, has_latin, has_arabic, has_korean, has_thai, has_vietnamese])
         if script_count > 1:
             return None
 
         if has_cyrillic:
             return 'ru'
-        elif has_japanese:
-            return 'ja'
+        elif has_arabic:
+            return 'ar'
         elif has_korean:
             return 'ko'
         elif has_thai:
