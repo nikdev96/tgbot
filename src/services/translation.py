@@ -339,11 +339,9 @@ async def process_translation(message: Message, text: str, source_type: str = "t
                 parse_mode="Markdown"
             )
 
-        # Send translations
+        # Send translations (without language prefix - it's obvious)
         for lang_code, translation in translations.items():
-            lang_info = SUPPORTED_LANGUAGES[lang_code]
-            response = f"{lang_info['flag']} {lang_info['name']}:\n{translation}"
-            await message.reply(response)
+            await message.reply(translation)
 
         # Generate and send voice response if enabled (PARALLEL TTS)
         if await is_voice_replies_enabled(user_id) and translations:
