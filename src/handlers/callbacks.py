@@ -14,7 +14,8 @@ from ..utils.keyboards import (
     build_preferences_keyboard,
     build_admin_dashboard_keyboard,
     build_admin_users_keyboard,
-    build_admin_cleanup_keyboard
+    build_admin_cleanup_keyboard,
+    build_admin_model_select_keyboard
 )
 from ..utils.formatting import format_admin_dashboard, format_server_status, format_users_list
 
@@ -281,3 +282,52 @@ async def admin_callback(callback: CallbackQuery):
             except Exception as e:
                 logger.error(f"Error during full cleanup: {e}")
                 await callback.answer("❌ Error during cleanup", show_alert=True)
+
+    elif action == "model" and len(action_parts) > 2 and action_parts[2] == "select":
+        # Show model selection menu
+        audit_logger.info(f"ADMIN_ACTION: Admin {user_id} opened model selection")
+        from ..services.model_manager import get_model_manager
+
+        model_manager = get_model_manager()
+        current_model = model_manager.get_current_model()
+        model_info = model_manager.get_model_info(current_model)
+
+        text = (
+            f"🤖 *Translation Model Selection*\n\n"
+            f"*Current Model:* `{model_info.get('name', current_model)}`\n"
+            f"*Description:* {model_info.get('description', 'N/A')}\n\n"
+            f"Select a model below to switch:"
+        )
+
+        keyboard = await build_admin_model_select_keyboard()
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+        await callback.answer("🤖 Model selection")
+
+    elif action == "set" and len(action_parts) > 2 and action_parts[2] == "model":
+        # Set new model
+        if len(action_parts) < 4:
+            await callback.answer("❌ Invalid model selection")
+            return
+
+        new_model = action_parts[3]
+        from ..services.model_manager import get_model_manager
+
+        model_manager = get_model_manager()
+        success = model_manager.set_model(new_model)
+
+        if success:
+            model_info = model_manager.get_model_info(new_model)
+            audit_logger.info(f"ADMIN_ACTION: Admin {user_id} changed model to {new_model}")
+
+            text = (
+                f"✅ *Model Changed Successfully*\n\n"
+                f"*New Model:* `{model_info.get('name', new_model)}`\n"
+                f"*Description:* {model_info.get('description', 'N/A')}\n\n"
+                f"All new translations will use this model\\."
+            )
+
+            keyboard = await build_admin_model_select_keyboard()
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
+            await callback.answer(f"✅ Switched to {model_info.get('name', new_model)}")
+        else:
+            await callback.answer("❌ Invalid model", show_alert=True)

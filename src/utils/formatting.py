@@ -15,6 +15,7 @@ def escape_markdown(text: str) -> str:
 async def format_admin_dashboard() -> str:
     """Format admin dashboard main screen with statistics"""
     from ..core.app import db
+    from ..services.model_manager import get_model_manager
     from datetime import datetime, timedelta
 
     all_users = await db.get_all_users()
@@ -29,8 +30,16 @@ async def format_admin_dashboard() -> str:
     three_days_ago = datetime.now() - timedelta(days=3)
     inactive_users = sum(1 for u in all_users if u["last_activity"] < three_days_ago)
 
+    # Get current model info
+    model_manager = get_model_manager()
+    current_model = model_manager.get_current_model()
+    model_info = model_manager.get_model_info(current_model)
+    model_icon = model_info.get('icon', '🤖')
+    model_name = model_info.get('name', current_model)
+
     text = (
         "🔧 *Admin Dashboard*\n\n"
+        f"🤖 *Current Model:* {model_icon} `{model_name}`\n\n"
         "📊 *Statistics:*\n"
         f"• Total Users: `{total_users}`\n"
         f"• Active: `{active_users}` | Disabled: `{disabled_users}`\n"

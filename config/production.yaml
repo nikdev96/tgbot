@@ -53,7 +53,7 @@ logging:
 openai:
   timeout_seconds: 30
   max_retries: 3
-  model: "gpt-4o"  # Default translation model
+  model: "gpt-4o-mini"  # Default translation model (gpt-4o, gpt-4o-mini)
 
 # Security settings
 security:

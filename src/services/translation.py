@@ -21,6 +21,7 @@ from ..services.analytics import (
     is_voice_replies_enabled, increment_voice_responses
 )
 from ..services.language import detect_language
+from ..services.model_manager import get_model_manager
 from ..utils.formatting import escape_markdown
 
 logger = logging.getLogger(__name__)
@@ -59,10 +60,14 @@ Respond with ONLY valid JSON in this exact format:
 
 Text to translate: {text}"""
 
+    # Get current model from model manager
+    model_manager = get_model_manager()
+    current_model = model_manager.get_current_model()
+
     for attempt in range(config.translation.max_retries):
         try:
             response = await openai_client.chat.completions.create(
-                model=config.openai.model,
+                model=current_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=config.translation.max_tokens,
                 temperature=0.3,
