@@ -276,8 +276,8 @@ async def process_translation(message: Message, text: str, source_type: str = "t
             "🇷🇺 Russian: \"Привет, как дела?\"\n"
             "🇺🇸 English: \"Hello, how are you?\"\n"
             "🇹🇭 Thai: \"สวัสดี เป็นอย่างไรบ้าง\"\n"
-            "🇯🇵 Japanese: \"こんにちは、元気ですか？\"\n"
-            "🇰🇷 Korean: \"안녕하세요, 어떻게 지내세요?\"\n"
+            "🇸🇦 Arabic: \"مرحبا، كيف حالك؟\"\n"
+            "🇨🇳 Chinese: \"你好，你好吗？\"\n"
             "🇻🇳 Vietnamese: \"Xin chào, bạn khỏe không?\"\n\n"
             "_Note: French, German, Spanish and other languages are not yet supported._",
             parse_mode="Markdown"

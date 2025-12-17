@@ -53,7 +53,7 @@ async def start_handler(message: Message):
 
     text = (
         "🌍 **Translation Bot**\n\n"
-        "I translate between 6 languages: 🇷🇺 Russian, 🇺🇸 English, 🇹🇭 Thai, 🇸🇦 Arabic, 🇰🇷 Korean, and 🇻🇳 Vietnamese!\n\n"
+        "I translate between 6 languages: 🇷🇺 Russian, 🇺🇸 English, 🇹🇭 Thai, 🇸🇦 Arabic, 🇨🇳 Chinese, and 🇻🇳 Vietnamese!\n\n"
         "**Features:**\n"
         "• 📝 Text & 🎤 Voice translation with auto-detection\n"
         "• 🏠 Translation Rooms - Multi-user chat with auto-translation\n"
