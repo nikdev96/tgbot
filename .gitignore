@@ -76,3 +76,4 @@ logs/
 
 # Data and cache
 data/
+*.db

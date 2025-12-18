@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Force use of ffmpeg version due to Python 3.13 audioop issue
 try:
-    from ..services.voice_fix import download_and_convert_audio_ffmpeg as download_and_convert_audio, transcribe_audio
+    from ..services.voice import download_and_convert_audio_ffmpeg as download_and_convert_audio, transcribe_audio
     logger.info("Using ffmpeg fallback for audio processing (Python 3.13 compatibility)")
 except ImportError as e:
     logger.error(f"Failed to import ffmpeg fallback: {e}")
