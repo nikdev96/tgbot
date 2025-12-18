@@ -13,16 +13,37 @@ from ..core.constants import DEFAULT_LANGUAGES
 logger = logging.getLogger(__name__)
 
 class DatabaseManager:
-    """SQLite database manager for user data persistence"""
+    """SQLite database manager for user data persistence with connection pooling"""
 
     def __init__(self, db_path: str = "data/translator_bot.db"):
         self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(exist_ok=True)
+        self.db_path.parent.mkdir(exist_ok=True, parents=True)
+
+        # Enable WAL mode for better concurrent access
+        self._init_wal_mode()
+
+    def _init_wal_mode(self):
+        """Initialize WAL mode for better concurrent access"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA busy_timeout=5000")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.close()
+            logger.info("WAL mode enabled for database")
+        except Exception as e:
+            logger.warning(f"Could not enable WAL mode: {e}")
 
     def _get_connection(self) -> sqlite3.Connection:
         """Get database connection with proper settings"""
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(
+            self.db_path,
+            timeout=30.0,
+            check_same_thread=False
+        )
         conn.row_factory = sqlite3.Row
+        # Enable foreign keys
+        conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
     async def init_db(self):

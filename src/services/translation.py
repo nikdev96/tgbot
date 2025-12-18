@@ -33,6 +33,13 @@ persistent_tts_cache = get_persistent_tts_cache()
 
 async def translate_text(text: str, source_lang: str, target_langs: Set[str]) -> Dict[str, str]:
     """Translate text to target languages with retry logic and JSON parsing"""
+    # Input validation
+    if not text or not text.strip():
+        logger.warning("Empty text provided for translation")
+        return {}
+
+    text = text.strip()
+
     if source_lang in target_langs:
         target_langs = target_langs - {source_lang}
 
