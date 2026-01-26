@@ -6,19 +6,25 @@ from aiogram import Dispatcher
 
 def register_all_handlers(dp: Dispatcher):
     """Register all bot handlers"""
-    from . import commands, callbacks, text, voice, room_commands
+    from . import commands, callbacks, text, voice, room_commands, inline_queries, reactions
 
-    # Register command handlers
+    # Register command handlers (1)
     commands.register_handlers(dp)
 
-    # Register callback handlers
+    # Register inline query handlers (2)
+    inline_queries.register_handlers(dp)
+
+    # Register reaction handlers (3)
+    reactions.register_handlers(dp)
+
+    # Register callback handlers (4)
     callbacks.register_handlers(dp)
 
-    # Register room handlers
+    # Register room handlers (5)
     room_commands.register_handlers(dp)
 
-    # Register voice handlers
+    # Register voice handlers (6)
     voice.register_handlers(dp)
 
-    # Register text handlers (should be last)
+    # Register text handlers (7 - should be last as catch-all)
     text.register_handlers(dp)

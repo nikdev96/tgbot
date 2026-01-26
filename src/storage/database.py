@@ -113,6 +113,18 @@ class DatabaseManager:
                 CREATE INDEX IF NOT EXISTS idx_rooms_status ON rooms(status);
                 CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(user_id);
                 CREATE INDEX IF NOT EXISTS idx_room_messages_room ON room_messages(room_id);
+
+                -- User message history for context memory
+                CREATE TABLE IF NOT EXISTS user_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    message_text TEXT NOT NULL,
+                    source_language TEXT NOT NULL,
+                    target_languages TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_user_messages_user ON user_messages(user_id, created_at DESC);
             """)
             conn.commit()
             logger.info("Database initialized successfully")
@@ -295,47 +307,6 @@ class DatabaseManager:
 
         except Exception as e:
             logger.error(f"Error adding Vietnamese to users: {e}")
-            conn.rollback()
-        finally:
-            conn.close()
-
-    async def replace_japanese_with_arabic(self):
-        """Replace Japanese (ja) with Arabic (ar) in all user preferences"""
-        await asyncio.get_event_loop().run_in_executor(
-            None, self._replace_japanese_with_arabic_sync
-        )
-
-    def _replace_japanese_with_arabic_sync(self):
-        """Synchronous version of replace_japanese_with_arabic"""
-        conn = self._get_connection()
-        try:
-            # Replace Japanese with Arabic in user preferences
-            conn.execute("""
-                UPDATE user_language_preferences
-                SET language_code = 'ar'
-                WHERE language_code = 'ja'
-            """)
-
-            # Replace Japanese with Arabic in room members
-            conn.execute("""
-                UPDATE room_members
-                SET language_code = 'ar'
-                WHERE language_code = 'ja'
-            """)
-
-            # Replace Japanese with Arabic in room messages
-            conn.execute("""
-                UPDATE room_messages
-                SET language_code = 'ar'
-                WHERE language_code = 'ja'
-            """)
-
-            rows_updated = conn.total_changes
-            conn.commit()
-            logger.info(f"Replaced Japanese with Arabic: {rows_updated} records updated")
-
-        except Exception as e:
-            logger.error(f"Error replacing Japanese with Arabic: {e}")
             conn.rollback()
         finally:
             conn.close()
@@ -1037,5 +1008,152 @@ class DatabaseManager:
             conn.commit()
             logger.info(f"Closed {count} expired rooms")
             return count
+        finally:
+            conn.close()
+
+    # ==================== CONTEXT MEMORY ====================
+
+    async def save_user_message(self, user_id: int, text: str, source_lang: str, target_langs: Optional[str] = None):
+        """Save user message for context memory"""
+        await asyncio.get_event_loop().run_in_executor(
+            None, self._save_user_message_sync, user_id, text, source_lang, target_langs
+        )
+
+    def _save_user_message_sync(self, user_id: int, text: str, source_lang: str, target_langs: Optional[str]):
+        """Synchronous version of save_user_message"""
+        conn = self._get_connection()
+        try:
+            conn.execute("""
+                INSERT INTO user_messages (user_id, message_text, source_language, target_languages)
+                VALUES (?, ?, ?, ?)
+            """, (user_id, text[:1000], source_lang, target_langs))  # Limit text length
+            conn.commit()
+        except Exception as e:
+            logger.error(f"Error saving user message: {e}")
+        finally:
+            conn.close()
+
+    async def get_user_context(self, user_id: int, limit: int = 3) -> List[Dict]:
+        """Get user's recent messages for context"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._get_user_context_sync, user_id, limit
+        )
+
+    def _get_user_context_sync(self, user_id: int, limit: int) -> List[Dict]:
+        """Synchronous version of get_user_context"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute("""
+                SELECT message_text, source_language, created_at
+                FROM user_messages
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+            """, (user_id, limit))
+
+            messages = []
+            for row in cursor.fetchall():
+                messages.append({
+                    "text": row["message_text"],
+                    "language": row["source_language"],
+                    "created_at": row["created_at"]
+                })
+
+            # Return in chronological order (oldest first)
+            return list(reversed(messages))
+        finally:
+            conn.close()
+
+    async def cleanup_old_messages(self, days: int = 7) -> int:
+        """Delete old user messages to keep database clean"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._cleanup_old_messages_sync, days
+        )
+
+    def _cleanup_old_messages_sync(self, days: int) -> int:
+        """Synchronous version of cleanup_old_messages"""
+        conn = self._get_connection()
+        try:
+            from datetime import timedelta
+            threshold = (datetime.now() - timedelta(days=days)).isoformat()
+
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM user_messages
+                WHERE created_at < ?
+            """, (threshold,))
+            count = cursor.fetchone()["count"]
+
+            conn.execute("""
+                DELETE FROM user_messages WHERE created_at < ?
+            """, (threshold,))
+
+            conn.commit()
+            logger.info(f"Cleaned up {count} old user messages (>{days} days)")
+            return count
+        finally:
+            conn.close()
+
+    async def get_user_stats(self, user_id: int) -> Dict:
+        """Get comprehensive user statistics for /stats command"""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._get_user_stats_sync, user_id
+        )
+
+    def _get_user_stats_sync(self, user_id: int) -> Dict:
+        """Synchronous version of get_user_stats"""
+        conn = self._get_connection()
+        try:
+            # Get user basic info
+            cursor = conn.execute("""
+                SELECT * FROM users WHERE id = ?
+            """, (user_id,))
+            user_row = cursor.fetchone()
+
+            if not user_row:
+                return None
+
+            # Get language usage statistics
+            cursor = conn.execute("""
+                SELECT source_language, COUNT(*) as count
+                FROM user_messages
+                WHERE user_id = ?
+                GROUP BY source_language
+                ORDER BY count DESC
+                LIMIT 3
+            """, (user_id,))
+            top_languages = [
+                {"language": row["source_language"], "count": row["count"]}
+                for row in cursor.fetchall()
+            ]
+
+            # Get messages this week
+            from datetime import timedelta
+            week_ago = (datetime.now() - timedelta(days=7)).isoformat()
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM user_messages
+                WHERE user_id = ? AND created_at > ?
+            """, (user_id, week_ago))
+            week_messages = cursor.fetchone()["count"]
+
+            # Get total messages from user_messages table
+            cursor = conn.execute("""
+                SELECT COUNT(*) as count FROM user_messages
+                WHERE user_id = ?
+            """, (user_id,))
+            total_context_messages = cursor.fetchone()["count"]
+
+            return {
+                "user_id": user_id,
+                "username": user_row["username"],
+                "first_name": user_row["first_name"],
+                "message_count": user_row["message_count"],
+                "voice_responses_sent": user_row["voice_responses_sent"],
+                "voice_replies_enabled": bool(user_row["voice_replies_enabled"]),
+                "created_at": datetime.fromisoformat(user_row["created_at"]) if user_row["created_at"] else None,
+                "last_activity": datetime.fromisoformat(user_row["last_activity"]) if user_row["last_activity"] else None,
+                "top_languages": top_languages,
+                "week_messages": week_messages,
+                "total_context_messages": total_context_messages
+            }
         finally:
             conn.close()

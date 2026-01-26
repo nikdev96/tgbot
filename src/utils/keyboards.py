@@ -30,22 +30,40 @@ async def build_quick_menu_keyboard() -> InlineKeyboardMarkup:
 async def build_preferences_keyboard(user_id: int) -> InlineKeyboardMarkup:
     """Build inline keyboard for language preferences"""
     prefs = await get_user_preferences(user_id)
-    buttons = []
 
-    for lang_code, info in SUPPORTED_LANGUAGES.items():
+    # Short labels for compact buttons
+    lang_labels = {
+        "ru": "🇷🇺 RU",
+        "en": "🇺🇸 EN",
+        "th": "🇹🇭 TH",
+        "vi": "🇻🇳 VN"
+    }
+
+    # Fixed order: ru, en, th, vi
+    lang_order = ["ru", "en", "th", "vi"]
+
+    lang_buttons = []
+    for lang_code in lang_order:
+        if lang_code not in SUPPORTED_LANGUAGES:
+            continue
         status = "✅" if lang_code in prefs else "❌"
-        text = f"{status} {info['flag']} {info['name']}"
-        buttons.append([InlineKeyboardButton(
+        text = f"{status} {lang_labels[lang_code]}"
+        lang_buttons.append(InlineKeyboardButton(
             text=text,
             callback_data=f"toggle_{lang_code}"
-        )])
+        ))
+
+    # 2 buttons per row
+    buttons = [
+        [lang_buttons[0], lang_buttons[1]],  # RU, EN
+        [lang_buttons[2], lang_buttons[3]],  # TH, VN
+    ]
 
     # Add voice replies toggle
     voice_enabled = await is_voice_replies_enabled(user_id)
     voice_status = "✅" if voice_enabled else "❌"
-    voice_text = f"{voice_status} 🎤 Voice replies"
     buttons.append([InlineKeyboardButton(
-        text=voice_text,
+        text=f"{voice_status} 🎤 Voice",
         callback_data="toggle_voice_replies"
     )])
 

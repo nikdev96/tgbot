@@ -41,15 +41,10 @@ async def show_menu_callback(callback: CallbackQuery):
     # Update user activity
     await update_user_activity(user_id, callback.from_user)
 
-    prefs = await get_user_preferences(user_id)
-    # Filter out invalid language codes
-    valid_prefs = [lang for lang in prefs if lang in SUPPORTED_LANGUAGES]
-    enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in valid_prefs]
-
+    # Static text to prevent layout jumps
     text = (
-        "⚙️ **Language Preferences**\n\n"
-        f"**Currently enabled:** {', '.join(enabled) if enabled else 'None'}\n\n"
-        "Select languages to enable/disable for translation:"
+        "⚙️ **Translation Settings**\n\n"
+        "Select languages for translation:"
     )
 
     keyboard = await build_preferences_keyboard(user_id)
@@ -74,13 +69,8 @@ async def toggle_preference(callback: CallbackQuery):
     if toggle_data == "voice_replies":
         # Handle voice replies toggle
         voice_enabled = await toggle_voice_replies(user_id)
-        prefs = await get_user_preferences(user_id)
-        # Filter out invalid language codes
-        valid_prefs = [lang for lang in prefs if lang in SUPPORTED_LANGUAGES]
-        enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in valid_prefs]
-
         status_msg = "enabled" if voice_enabled else "disabled"
-        callback_msg = f"✅ Voice replies {status_msg}"
+        callback_msg = f"🎤 Voice replies {status_msg}"
     else:
         # Handle language preference toggle
         lang_code = toggle_data
@@ -89,17 +79,16 @@ async def toggle_preference(callback: CallbackQuery):
             return
 
         prefs = await update_user_preference(user_id, lang_code)
-        # Filter out invalid language codes
-        valid_prefs = [lang for lang in prefs if lang in SUPPORTED_LANGUAGES]
-        enabled = [SUPPORTED_LANGUAGES[lang]["name"] for lang in valid_prefs]
-        callback_msg = f"✅ Updated preferences: {', '.join(enabled)}"
+        lang_name = SUPPORTED_LANGUAGES[lang_code]["name"]
+        is_enabled = lang_code in prefs
+        callback_msg = f"{'✅' if is_enabled else '❌'} {lang_name}"
 
     keyboard = await build_preferences_keyboard(user_id)
 
+    # Static text - same as show_menu_callback to prevent layout jumps
     text = (
-        "⚙️ **Translation Preferences**\n\n"
-        f"**Currently enabled:** {', '.join(enabled)}\n\n"
-        "Toggle languages below:"
+        "⚙️ **Translation Settings**\n\n"
+        "Select languages for translation:"
     )
 
     await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")

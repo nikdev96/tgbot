@@ -31,8 +31,15 @@ translation_cache = get_translation_cache()
 persistent_tts_cache = get_persistent_tts_cache()
 
 
-async def translate_text(text: str, source_lang: str, target_langs: Set[str]) -> Dict[str, str]:
-    """Translate text to target languages with retry logic and JSON parsing"""
+async def translate_text(text: str, source_lang: str, target_langs: Set[str], context: Optional[str] = None) -> Dict[str, str]:
+    """Translate text to target languages with retry logic and JSON parsing
+
+    Args:
+        text: Text to translate
+        source_lang: Source language code
+        target_langs: Set of target language codes
+        context: Optional previous messages context for better translation
+    """
     # Input validation
     if not text or not text.strip():
         logger.warning("Empty text provided for translation")
@@ -46,8 +53,9 @@ async def translate_text(text: str, source_lang: str, target_langs: Set[str]) ->
     if not target_langs:
         return {}
 
-    # Check cache first
-    cache_key = hashlib.md5(f"{text}:{source_lang}:{sorted(target_langs)}".encode()).hexdigest()
+    # Check cache first (include context in cache key if provided)
+    context_hash = hashlib.md5(context.encode()).hexdigest()[:8] if context else ""
+    cache_key = hashlib.md5(f"{text}:{source_lang}:{sorted(target_langs)}:{context_hash}".encode()).hexdigest()
     if cache_key in translation_cache:
         logger.info(f"Cache hit for translation: {text[:50]}...")
         return translation_cache[cache_key]
@@ -56,7 +64,17 @@ async def translate_text(text: str, source_lang: str, target_langs: Set[str]) ->
     target_langs_list = sorted(list(target_langs))
     json_example = {lang: f"translation in {SUPPORTED_LANGUAGES[lang]['name']}" for lang in target_langs_list}
 
-    prompt = f"""Translate this {SUPPORTED_LANGUAGES[source_lang]["name"]} text into the following languages.
+    # Build prompt with optional context
+    context_section = ""
+    if context:
+        context_section = f"""Previous messages for context (use this to improve translation quality and maintain consistency):
+{context}
+
+---
+
+"""
+
+    prompt = f"""{context_section}Translate this {SUPPORTED_LANGUAGES[source_lang]["name"]} text into the following languages.
 
 IMPORTANT: Preserve all emojis exactly as they appear in the original text.
 
@@ -254,6 +272,8 @@ async def generate_parallel_voice_responses(message: Message, user_id: int, tran
 
 async def process_translation(message: Message, text: str, source_type: str = "text", early_response_msg=None):
     """Common translation processing for text and voice with early response support"""
+    from ..core.app import db
+
     user_id = message.from_user.id
 
     # Check if user is disabled
@@ -320,8 +340,29 @@ async def process_translation(message: Message, text: str, source_type: str = "t
         else:
             status_msg = early_response_msg
 
-        # Start translation
-        translations = await translate_text(text, source_lang, target_langs)
+        # Get context from previous messages (only for private chats)
+        context = None
+        if message.chat.type == "private":
+            try:
+                context_messages = await db.get_user_context(user_id, limit=3)
+                if context_messages:
+                    context_parts = []
+                    for msg in context_messages:
+                        lang_info = SUPPORTED_LANGUAGES.get(msg["language"], {"name": msg["language"]})
+                        context_parts.append(f"[{lang_info['name']}]: {msg['text']}")
+                    context = "\n".join(context_parts)
+            except Exception as e:
+                logger.warning(f"Could not get context for user {user_id}: {e}")
+
+        # Start translation with context
+        translations = await translate_text(text, source_lang, target_langs, context=context)
+
+        # Save message to context history (after successful translation)
+        try:
+            target_langs_str = ",".join(sorted(target_langs))
+            await db.save_user_message(user_id, text, source_lang, target_langs_str)
+        except Exception as e:
+            logger.warning(f"Could not save message to context: {e}")
 
         # Delete status message
         try:
