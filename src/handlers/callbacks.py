@@ -8,14 +8,15 @@ from ..services.analytics import (
     is_user_disabled, update_user_activity, get_user_preferences,
     update_user_preference, toggle_voice_replies, is_admin, set_user_disabled
 )
-from ..core.app import audit_logger
+from ..core.app import audit_logger, db
 from ..core.constants import SUPPORTED_LANGUAGES
 from ..utils.keyboards import (
     build_preferences_keyboard,
     build_admin_dashboard_keyboard,
     build_admin_users_keyboard,
     build_admin_cleanup_keyboard,
-    build_admin_model_select_keyboard
+    build_admin_model_select_keyboard,
+    get_feedback_data
 )
 from ..utils.formatting import format_admin_dashboard, format_server_status, format_users_list
 
@@ -27,6 +28,7 @@ def register_handlers(dp):
     dp.callback_query.register(show_menu_callback, F.data == "show_menu")
     dp.callback_query.register(toggle_preference, F.data.startswith("toggle_"))
     dp.callback_query.register(admin_callback, F.data.startswith("admin_"))
+    dp.callback_query.register(feedback_callback, F.data.startswith("fb_"))
 
 
 async def show_menu_callback(callback: CallbackQuery):
@@ -320,3 +322,62 @@ async def admin_callback(callback: CallbackQuery):
             await callback.answer(f"✅ Switched to {model_info.get('name', new_model)}")
         else:
             await callback.answer("❌ Invalid model", show_alert=True)
+
+
+async def feedback_callback(callback: CallbackQuery):
+    """Handle translation feedback callbacks (👍/👎 buttons)"""
+    user_id = callback.from_user.id
+
+    # Check if user is disabled
+    if await is_user_disabled(user_id):
+        await callback.answer("❌ Access disabled", show_alert=True)
+        return
+
+    # Parse callback data: fb_pos_<feedback_id> or fb_neg_<feedback_id>
+    parts = callback.data.split("_")
+    if len(parts) != 3:
+        await callback.answer("❌ Invalid feedback data")
+        return
+
+    # Explicitly validate feedback type
+    feedback_type_code = parts[1]
+    if feedback_type_code == "pos":
+        feedback_type = "positive"
+    elif feedback_type_code == "neg":
+        feedback_type = "negative"
+    else:
+        logger.warning(f"Invalid feedback type code: {feedback_type_code}")
+        await callback.answer("❌ Invalid feedback type")
+        return
+
+    feedback_id = parts[2]
+
+    # Get stored feedback data
+    feedback_data = get_feedback_data(feedback_id)
+    if not feedback_data:
+        await callback.answer("⏰ Feedback expired. Please provide feedback on newer translations.")
+        return
+
+    # Save feedback to database
+    success = await db.save_translation_feedback(
+        user_id=user_id,
+        source_text=feedback_data["source_text"],
+        source_lang=feedback_data["source_lang"],
+        target_lang=feedback_data["target_lang"],
+        translated_text=feedback_data["translated_text"],
+        feedback_type=feedback_type
+    )
+
+    if success:
+        if feedback_type == "positive":
+            await callback.answer("👍 Thanks for the feedback!")
+        else:
+            await callback.answer("👎 Thanks! We'll work on improving this.")
+
+        # Remove the feedback buttons after feedback is given
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception as e:
+            logger.debug(f"Could not remove feedback buttons: {e}")
+    else:
+        await callback.answer("❌ Could not save feedback. Please try again.")

@@ -19,8 +19,6 @@ SUPPORTED_LANGUAGES: Final[Dict[str, LanguageMetadata]] = {
     "ru": {"name": "Russian", "flag": "🇷🇺"},
     "en": {"name": "English", "flag": "🇺🇸"},
     "th": {"name": "Thai", "flag": "🇹🇭"},
-    "ar": {"name": "Arabic", "flag": "🇸🇦"},
-    "zh": {"name": "Chinese", "flag": "🇨🇳"},
     "vi": {"name": "Vietnamese", "flag": "🇻🇳"}
 }
 

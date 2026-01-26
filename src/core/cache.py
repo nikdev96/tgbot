@@ -1,18 +1,101 @@
 """
 Centralized cache management for translations and TTS
+
+Features:
+- Translation cache: LRU with 24h TTL, 2000 entries
+- TTS cache: Persistent file-based with automatic cleanup
+- Text normalization for better cache hit rates
+- Thread-safe statistics tracking
 """
 import hashlib
 import logging
 import shutil
+import threading
+import unicodedata
 from pathlib import Path
-from typing import Optional
-from cachetools import TTLCache
+from typing import Optional, Dict, Any
+from cachetools import TTLCache, LRUCache
 
 logger = logging.getLogger(__name__)
 
-# Global caches
-translation_cache = TTLCache(maxsize=1000, ttl=3600)  # 1 hour
-tts_cache = TTLCache(maxsize=500, ttl=1800)  # 30 minutes
+# Global caches with improved settings
+# Translation cache: 24 hours TTL, 2000 entries (increased from 1000)
+translation_cache = TTLCache(maxsize=2000, ttl=86400)  # 24 hours
+tts_cache = TTLCache(maxsize=500, ttl=3600)  # 1 hour
+
+# Thread lock for cache statistics
+_stats_lock = threading.Lock()
+
+# Cache statistics for monitoring
+cache_stats: Dict[str, int] = {
+    "translation_hits": 0,
+    "translation_misses": 0,
+    "tts_hits": 0,
+    "tts_misses": 0
+}
+
+
+def normalize_text_for_cache(text: str) -> str:
+    """Normalize text for cache key generation.
+
+    Improves cache hit rate by normalizing:
+    - Whitespace (collapse multiple spaces, strip)
+    - Unicode normalization (NFC form)
+    - Case-insensitive matching disabled (preserves meaning)
+
+    Args:
+        text: Original text
+
+    Returns:
+        Normalized text for cache key
+    """
+    # Strip and normalize whitespace
+    text = ' '.join(text.split())
+    # Unicode normalization (NFC - canonical decomposition followed by canonical composition)
+    text = unicodedata.normalize('NFC', text)
+    return text
+
+
+def get_cache_stats() -> Dict[str, Any]:
+    """Get cache statistics for monitoring (thread-safe).
+
+    Returns:
+        Dictionary with cache stats including hit rates
+    """
+    with _stats_lock:
+        total_translation = cache_stats["translation_hits"] + cache_stats["translation_misses"]
+        total_tts = cache_stats["tts_hits"] + cache_stats["tts_misses"]
+
+        return {
+            "translation": {
+                "hits": cache_stats["translation_hits"],
+                "misses": cache_stats["translation_misses"],
+                "hit_rate": cache_stats["translation_hits"] / total_translation if total_translation > 0 else 0,
+                "size": len(translation_cache),
+                "maxsize": translation_cache.maxsize,
+                "ttl": translation_cache.ttl
+            },
+            "tts": {
+                "hits": cache_stats["tts_hits"],
+                "misses": cache_stats["tts_misses"],
+                "hit_rate": cache_stats["tts_hits"] / total_tts if total_tts > 0 else 0,
+                "size": len(tts_cache),
+                "maxsize": tts_cache.maxsize
+            }
+        }
+
+
+def increment_cache_stat(cache_type: str, hit: bool):
+    """Increment cache statistics counter (thread-safe).
+
+    Args:
+        cache_type: "translation" or "tts"
+        hit: True for cache hit, False for miss
+    """
+    key = f"{cache_type}_{'hits' if hit else 'misses'}"
+    with _stats_lock:
+        if key in cache_stats:
+            cache_stats[key] += 1
 
 
 class PersistentTTSCache:
@@ -88,3 +171,20 @@ def get_persistent_tts_cache() -> PersistentTTSCache:
     if _persistent_tts_cache is None:
         _persistent_tts_cache = PersistentTTSCache()
     return _persistent_tts_cache
+
+
+def clear_all_caches():
+    """Clear all in-memory caches (for admin/maintenance)"""
+    translation_cache.clear()
+    tts_cache.clear()
+    # Use .clear() to reset stats while keeping the same dict reference
+    # This prevents race conditions with other threads holding old references
+    with _stats_lock:
+        cache_stats.clear()
+        cache_stats.update({
+            "translation_hits": 0,
+            "translation_misses": 0,
+            "tts_hits": 0,
+            "tts_misses": 0
+        })
+    logger.info("All in-memory caches cleared")

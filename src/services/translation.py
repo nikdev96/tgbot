@@ -1,21 +1,29 @@
 """
 Translation service with text translation and voice response capabilities
+
+Features:
+- Adaptive localization (not literal translation)
+- Auto style detection (casual/formal/neutral)
+- Cultural adaptation with glossary support
+- Context-aware translations
 """
 import asyncio
 import hashlib
 import json
 import logging
+import re
 import shutil
 import tempfile
+import time
 from pathlib import Path
-from typing import Dict, Set, Optional
+from typing import Dict, Set, Optional, Literal
 from aiogram.types import Message, FSInputFile
 from aiogram.exceptions import TelegramBadRequest
 from openai import AsyncOpenAI
 
 from ..core.app import openai_client, config, audit_logger
 from ..core.constants import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGES
-from ..core.cache import get_translation_cache, get_persistent_tts_cache
+from ..core.cache import get_translation_cache, get_persistent_tts_cache, normalize_text_for_cache, increment_cache_stat
 from ..services.analytics import (
     is_user_disabled, update_user_activity, get_user_preferences,
     is_voice_replies_enabled, increment_voice_responses
@@ -23,6 +31,8 @@ from ..services.analytics import (
 from ..services.language import detect_language
 from ..services.model_manager import get_model_manager
 from ..utils.formatting import escape_markdown
+from ..data.glossary import format_glossary_hints
+from ..utils.keyboards import build_translation_feedback_keyboard, store_feedback_data
 
 logger = logging.getLogger(__name__)
 
@@ -30,16 +40,208 @@ logger = logging.getLogger(__name__)
 translation_cache = get_translation_cache()
 persistent_tts_cache = get_persistent_tts_cache()
 
+# Style detection and adaptation constants
+TextStyle = Literal["casual", "formal", "neutral"]
+
+STYLE_INSTRUCTIONS: Dict[str, str] = {
+    "casual": "Use informal language, slang equivalents, keep the playful/friendly tone. Match casual expressions with natural equivalents in target language.",
+    "formal": "Use formal language, polite forms, professional vocabulary. Maintain respectful tone appropriate for business or official contexts.",
+    "neutral": "Use natural everyday language with balanced formality. Standard conversational tone."
+}
+
+# Casual text indicators
+CASUAL_WORDS_RU = {'хах', 'ахах', 'блин', 'чё', 'ваще', 'круто', 'норм', 'лол', 'кек', 'пон', 'ок', 'окей', 'ага', 'угу', 'ну', 'чел', 'братан', 'бро'}
+CASUAL_WORDS_EN = {'lol', 'lmao', 'omg', 'btw', 'gonna', 'wanna', 'gotta', 'yeah', 'nope', 'yep', 'cool', 'awesome', 'dude', 'bro', 'sup', 'hey'}
+CASUAL_WORDS_TH = {'555', 'จ้า', 'ค่ะ', 'นะคะ', 'ชิมิ', 'อิอิ'}
+CASUAL_WORDS_VI = {'haha', 'hihi', 'ơi', 'nhé', 'nha', 'á', 'ạ', 'dạ'}
+
+ALL_CASUAL_WORDS = CASUAL_WORDS_RU | CASUAL_WORDS_EN | CASUAL_WORDS_TH | CASUAL_WORDS_VI
+
+# Formal text indicators
+FORMAL_WORDS_RU = {'уважаемый', 'уважаемая', 'господин', 'госпожа', 'прошу', 'благодарю', 'искренне', 'с уважением'}
+FORMAL_WORDS_EN = {'dear', 'sincerely', 'regards', 'respectfully', 'kindly', 'hereby', 'pursuant', 'acknowledge'}
+FORMAL_WORDS_TH = {'เรียน', 'กราบเรียน', 'ขอแสดงความนับถือ', 'ด้วยความเคารพ'}
+FORMAL_WORDS_VI = {'kính', 'thưa', 'trân trọng', 'xin'}
+
+ALL_FORMAL_WORDS = FORMAL_WORDS_RU | FORMAL_WORDS_EN | FORMAL_WORDS_TH | FORMAL_WORDS_VI
+
+
+def detect_text_style(text: str) -> TextStyle:
+    """Auto-detect text style for translation adaptation.
+
+    Analyzes text for casual/formal indicators:
+    - Casual: emojis, multiple punctuation, slang words, informal markers
+    - Formal: proper punctuation, formal vocabulary, structured sentences
+    - Neutral: balanced, everyday language
+
+    Args:
+        text: Text to analyze
+
+    Returns:
+        Detected style: "casual", "formal", or "neutral"
+    """
+    # Guard against None or empty text
+    if not text or not text.strip():
+        return "neutral"
+
+    text_lower = text.lower()
+
+    # Casual indicators
+    casual_signs = [
+        # Multiple punctuation marks (!! or ??)
+        len(re.findall(r'[!?]{2,}', text)) > 0,
+        # Emojis (common ranges)
+        bool(re.search(r'[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F1E0-\U0001F1FF\U00002702-\U000027B0\U0001F900-\U0001F9FF]', text)),
+        # Casual words in any supported language
+        any(word in text_lower for word in ALL_CASUAL_WORDS),
+        # Russian-style emoticons ))) or (((
+        text.count(')') > 2 or text.count('(') > 2,
+        # Lowercase start (informal)
+        text and text[0].islower() and len(text) > 3,
+        # All caps words (HAHA, WOW)
+        bool(re.search(r'\b[A-ZА-Я]{3,}\b', text)),
+    ]
+
+    # Formal indicators
+    formal_signs = [
+        # Proper sentence structure (capital start, period end)
+        text and text[0].isupper() and text.rstrip().endswith('.'),
+        # Formal vocabulary
+        any(word in text_lower for word in ALL_FORMAL_WORDS),
+        # Long text (usually more formal)
+        len(text) > 200,
+        # Structured dates or numbers
+        bool(re.search(r'\d{2}[./]\d{2}[./]\d{4}', text)),
+        # No emojis in long text
+        len(text) > 50 and not re.search(r'[\U0001F600-\U0001F64F]', text),
+    ]
+
+    casual_score = sum(casual_signs)
+    formal_score = sum(formal_signs)
+
+    if casual_score >= 2:
+        return "casual"
+    if formal_score >= 2:
+        return "formal"
+    return "neutral"
+
+
+def build_localization_prompt(
+    text: str,
+    source_lang: str,
+    target_langs: Set[str],
+    context: Optional[str] = None,
+    style: Optional[TextStyle] = None
+) -> str:
+    """Build adaptive localization prompt.
+
+    Creates a prompt that instructs the model to LOCALIZE (adapt culturally)
+    rather than literally translate. Includes style-specific instructions.
+
+    Args:
+        text: Text to translate
+        source_lang: Source language code
+        target_langs: Set of target language codes
+        context: Optional previous messages for context
+        style: Detected text style (auto-detected if None)
+
+    Returns:
+        Complete prompt for OpenAI API
+
+    Raises:
+        ValueError: If source_lang or any target_lang is not supported
+    """
+    # Validate source language
+    if source_lang not in SUPPORTED_LANGUAGES:
+        raise ValueError(f"Unsupported source language: {source_lang}")
+
+    # Validate and filter target languages
+    valid_target_langs = {lang for lang in target_langs if lang in SUPPORTED_LANGUAGES}
+    invalid_langs = target_langs - valid_target_langs
+    if invalid_langs:
+        logger.warning(f"Ignoring unsupported target languages: {invalid_langs}")
+
+    if not valid_target_langs:
+        raise ValueError(f"No valid target languages provided. Invalid: {target_langs}")
+
+    # Auto-detect style if not provided
+    if style is None:
+        style = detect_text_style(text)
+
+    target_langs_list = sorted(list(valid_target_langs))
+    json_example = {lang: f"localized text in {SUPPORTED_LANGUAGES[lang]['name']}" for lang in target_langs_list}
+
+    # Build context section
+    context_section = ""
+    if context:
+        context_section = f"""PREVIOUS CONVERSATION (for context and consistency):
+{context}
+
+---
+
+"""
+
+    # Build language-specific hints
+    lang_hints = []
+    for lang in target_langs_list:
+        if lang == "th":
+            lang_hints.append("- Thai: Use appropriate politeness particles (ครับ/ค่ะ) based on formality")
+        elif lang == "vi":
+            lang_hints.append("- Vietnamese: Use appropriate pronouns and formality markers")
+        elif lang == "ru":
+            lang_hints.append("- Russian: Match the register (ты/вы) appropriately")
+
+    lang_hints_section = ""
+    if lang_hints:
+        lang_hints_section = "\n" + "\n".join(lang_hints)
+
+    # Add glossary hints
+    glossary_section = format_glossary_hints(source_lang, target_langs)
+
+    # Build the main prompt
+    prompt = f"""{context_section}You are a professional translator and localization expert.
+Your task is to LOCALIZE (not literally translate) the text for native speakers of each target language.
+
+LOCALIZATION RULES:
+1. Adapt idioms and expressions to natural equivalents in the target language
+2. Adjust formality level to match cultural norms of each target language
+3. Preserve the original MEANING, INTENT, and TONE - not the exact words
+4. Keep all emojis exactly as they appear in the original
+5. For slang/colloquial text, use natural equivalents, not formal translations
+6. Ensure the text sounds like it was originally written by a native speaker
+
+DETECTED STYLE: {style.upper()}
+{STYLE_INSTRUCTIONS[style]}{lang_hints_section}{glossary_section}
+
+Source language: {SUPPORTED_LANGUAGES[source_lang]['name']}
+Target languages: {', '.join([SUPPORTED_LANGUAGES[lang]['name'] for lang in target_langs_list])}
+
+TEXT TO LOCALIZE:
+{text}
+
+Respond with ONLY valid JSON in this exact format:
+{json.dumps(json_example, ensure_ascii=False, indent=2)}"""
+
+    return prompt
+
 
 async def translate_text(text: str, source_lang: str, target_langs: Set[str], context: Optional[str] = None) -> Dict[str, str]:
-    """Translate text to target languages with retry logic and JSON parsing
+    """Translate text to target languages with adaptive localization.
+
+    Uses style-aware prompt for natural, culturally-adapted translations
+    instead of literal word-for-word translation.
 
     Args:
         text: Text to translate
         source_lang: Source language code
         target_langs: Set of target language codes
         context: Optional previous messages context for better translation
+
+    Returns:
+        Dictionary mapping language codes to translated text
     """
+    start_time = time.time()
+
     # Input validation
     if not text or not text.strip():
         logger.warning("Empty text provided for translation")
@@ -53,41 +255,33 @@ async def translate_text(text: str, source_lang: str, target_langs: Set[str], co
     if not target_langs:
         return {}
 
-    # Check cache first (include context in cache key if provided)
+    # Detect style early for logging
+    style = detect_text_style(text)
+
+    # Normalize text for better cache hits
+    normalized_text = normalize_text_for_cache(text)
+
+    # Check cache first (include context and style in cache key)
     context_hash = hashlib.md5(context.encode()).hexdigest()[:8] if context else ""
-    cache_key = hashlib.md5(f"{text}:{source_lang}:{sorted(target_langs)}:{context_hash}".encode()).hexdigest()
+    cache_key = hashlib.md5(f"{normalized_text}:{source_lang}:{sorted(target_langs)}:{context_hash}:{style}".encode()).hexdigest()
     if cache_key in translation_cache:
-        logger.info(f"Cache hit for translation: {text[:50]}...")
+        increment_cache_stat("translation", hit=True)
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.info(f"Translation: {source_lang}→{list(target_langs)}, chars={len(text)}, style={style}, time={elapsed_ms:.0f}ms, cached=True")
         return translation_cache[cache_key]
 
-    # Build JSON schema for response
-    target_langs_list = sorted(list(target_langs))
-    json_example = {lang: f"translation in {SUPPORTED_LANGUAGES[lang]['name']}" for lang in target_langs_list}
+    # Track cache miss
+    increment_cache_stat("translation", hit=False)
 
-    # Build prompt with optional context
-    context_section = ""
-    if context:
-        context_section = f"""Previous messages for context (use this to improve translation quality and maintain consistency):
-{context}
-
----
-
-"""
-
-    prompt = f"""{context_section}Translate this {SUPPORTED_LANGUAGES[source_lang]["name"]} text into the following languages.
-
-IMPORTANT: Preserve all emojis exactly as they appear in the original text.
-
-Target languages: {', '.join([SUPPORTED_LANGUAGES[lang]["name"] for lang in target_langs_list])}
-
-Respond with ONLY valid JSON in this exact format:
-{json.dumps(json_example, ensure_ascii=False, indent=2)}
-
-Text to translate: {text}"""
+    # Build adaptive localization prompt
+    prompt = build_localization_prompt(text, source_lang, target_langs, context, style)
 
     # Get current model from model manager
     model_manager = get_model_manager()
     current_model = model_manager.get_current_model()
+
+    # Initialize content for error handling
+    content = ""
 
     for attempt in range(config.translation.max_retries):
         try:
@@ -135,7 +329,15 @@ Text to translate: {text}"""
 
             # Cache successful translations
             translation_cache[cache_key] = translations
-            logger.info(f"Translation successful: {len(translations)}/{len(target_langs)} languages for text: {text[:50]}...")
+
+            # Log translation metrics
+            elapsed_ms = (time.time() - start_time) * 1000
+            logger.info(
+                f"Translation: {source_lang}→{list(target_langs)}, "
+                f"chars={len(text)}, style={style}, "
+                f"time={elapsed_ms:.0f}ms, cached=False, "
+                f"model={current_model}"
+            )
             return translations
 
         except json.JSONDecodeError as e:
@@ -387,9 +589,14 @@ async def process_translation(message: Message, text: str, source_type: str = "t
                 parse_mode="Markdown"
             )
 
-        # Send translations (without language prefix - it's obvious)
+        # Send translations with feedback buttons
         for lang_code, translation in translations.items():
-            await message.reply(translation)
+            # Store feedback data and create keyboard
+            store_feedback_data(text, source_lang, lang_code, translation)
+            feedback_keyboard = build_translation_feedback_keyboard(
+                text, source_lang, lang_code, translation
+            )
+            await message.reply(translation, reply_markup=feedback_keyboard)
 
         # Generate and send voice response if enabled (PARALLEL TTS)
         if await is_voice_replies_enabled(user_id) and translations:

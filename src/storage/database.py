@@ -125,6 +125,22 @@ class DatabaseManager:
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_user_messages_user ON user_messages(user_id, created_at DESC);
+
+                -- Translation feedback for quality analysis
+                CREATE TABLE IF NOT EXISTS translation_feedback (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    source_text TEXT NOT NULL,
+                    source_language TEXT NOT NULL,
+                    target_language TEXT NOT NULL,
+                    translated_text TEXT NOT NULL,
+                    feedback_type TEXT NOT NULL CHECK (feedback_type IN ('positive', 'negative')),
+                    suggestion TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_feedback_user ON translation_feedback(user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_feedback_type ON translation_feedback(feedback_type);
             """)
             conn.commit()
             logger.info("Database initialized successfully")
@@ -1154,6 +1170,150 @@ class DatabaseManager:
                 "top_languages": top_languages,
                 "week_messages": week_messages,
                 "total_context_messages": total_context_messages
+            }
+        finally:
+            conn.close()
+
+    # ==================== TRANSLATION FEEDBACK ====================
+
+    async def save_translation_feedback(
+        self,
+        user_id: int,
+        source_text: str,
+        source_lang: str,
+        target_lang: str,
+        translated_text: str,
+        feedback_type: str,
+        suggestion: Optional[str] = None
+    ) -> bool:
+        """Save translation feedback for quality analysis.
+
+        Args:
+            user_id: User who provided feedback
+            source_text: Original text that was translated
+            source_lang: Source language code
+            target_lang: Target language code
+            translated_text: The translation that received feedback
+            feedback_type: "positive" or "negative"
+            suggestion: Optional user suggestion for improvement
+
+        Returns:
+            True if saved successfully
+        """
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._save_translation_feedback_sync,
+            user_id, source_text, source_lang, target_lang, translated_text, feedback_type, suggestion
+        )
+
+    def _save_translation_feedback_sync(
+        self,
+        user_id: int,
+        source_text: str,
+        source_lang: str,
+        target_lang: str,
+        translated_text: str,
+        feedback_type: str,
+        suggestion: Optional[str]
+    ) -> bool:
+        """Synchronous version of save_translation_feedback"""
+        conn = self._get_connection()
+        try:
+            conn.execute("""
+                INSERT INTO translation_feedback
+                (user_id, source_text, source_language, target_language, translated_text, feedback_type, suggestion)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (user_id, source_text[:500], source_lang, target_lang, translated_text[:500], feedback_type, suggestion))
+            conn.commit()
+            logger.info(f"Feedback saved: user={user_id}, type={feedback_type}, {source_lang}→{target_lang}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving translation feedback: {e}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    async def get_feedback_stats(self) -> Dict:
+        """Get translation feedback statistics for admin dashboard.
+
+        Returns:
+            Dictionary with feedback statistics
+        """
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._get_feedback_stats_sync
+        )
+
+    def _get_feedback_stats_sync(self) -> Dict:
+        """Synchronous version of get_feedback_stats"""
+        conn = self._get_connection()
+        try:
+            # Get total counts by feedback type
+            cursor = conn.execute("""
+                SELECT feedback_type, COUNT(*) as count
+                FROM translation_feedback
+                GROUP BY feedback_type
+            """)
+            counts = {row["feedback_type"]: row["count"] for row in cursor.fetchall()}
+
+            # Get recent negative feedback for review
+            cursor = conn.execute("""
+                SELECT source_text, source_language, target_language, translated_text, suggestion, created_at
+                FROM translation_feedback
+                WHERE feedback_type = 'negative'
+                ORDER BY created_at DESC
+                LIMIT 10
+            """)
+            recent_negative = [
+                {
+                    "source_text": row["source_text"],
+                    "source_lang": row["source_language"],
+                    "target_lang": row["target_language"],
+                    "translated_text": row["translated_text"],
+                    "suggestion": row["suggestion"],
+                    "created_at": row["created_at"]
+                }
+                for row in cursor.fetchall()
+            ]
+
+            # Get language pair breakdown
+            cursor = conn.execute("""
+                SELECT source_language, target_language, feedback_type, COUNT(*) as count
+                FROM translation_feedback
+                GROUP BY source_language, target_language, feedback_type
+                ORDER BY count DESC
+                LIMIT 20
+            """)
+            by_language = [
+                {
+                    "source_lang": row["source_language"],
+                    "target_lang": row["target_language"],
+                    "feedback_type": row["feedback_type"],
+                    "count": row["count"]
+                }
+                for row in cursor.fetchall()
+            ]
+
+            total = counts.get("positive", 0) + counts.get("negative", 0)
+            positive_rate = counts.get("positive", 0) / total if total > 0 else 0
+
+            return {
+                "total": total,
+                "positive": counts.get("positive", 0),
+                "negative": counts.get("negative", 0),
+                "positive_rate": positive_rate,
+                "recent_negative": recent_negative,
+                "by_language": by_language
+            }
+        except Exception as e:
+            logger.error(f"Error getting feedback stats: {e}")
+            # Return empty stats on error
+            return {
+                "total": 0,
+                "positive": 0,
+                "negative": 0,
+                "positive_rate": 0,
+                "recent_negative": [],
+                "by_language": []
             }
         finally:
             conn.close()
