@@ -677,18 +677,32 @@ class DatabaseManager:
             """, (threshold.isoformat(),))
             count = cursor.fetchone()["count"]
 
-            # Delete language preferences first (foreign key constraint)
-            conn.execute("""
-                DELETE FROM user_language_preferences
-                WHERE user_id IN (
-                    SELECT id FROM users WHERE last_activity < ?
+            # Delete all related records first (foreign key constraints)
+            inactive_subquery = "SELECT id FROM users WHERE last_activity < ?"
+            threshold_param = (threshold.isoformat(),)
+
+            for table in [
+                "user_language_preferences",
+                "user_messages",
+                "translation_feedback",
+                "room_messages",
+                "room_members",
+            ]:
+                conn.execute(
+                    f"DELETE FROM {table} WHERE user_id IN ({inactive_subquery})",
+                    threshold_param,
                 )
-            """, (threshold.isoformat(),))
+
+            # Delete rooms created by inactive users
+            conn.execute(
+                f"DELETE FROM rooms WHERE creator_id IN ({inactive_subquery})",
+                threshold_param,
+            )
 
             # Delete users
             conn.execute("""
                 DELETE FROM users WHERE last_activity < ?
-            """, (threshold.isoformat(),))
+            """, threshold_param)
 
             conn.commit()
             logger.info(f"Deleted {count} inactive users (>{days} days)")
