@@ -14,7 +14,7 @@ import threading
 import unicodedata
 from pathlib import Path
 from typing import Optional, Dict, Any
-from cachetools import TTLCache, LRUCache
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 

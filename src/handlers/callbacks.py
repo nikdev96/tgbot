@@ -16,7 +16,6 @@ from ..utils.keyboards import (
     build_admin_users_keyboard,
     build_admin_cleanup_keyboard,
     build_admin_model_select_keyboard,
-    get_feedback_data
 )
 from ..utils.formatting import format_admin_dashboard, format_server_status, format_users_list
 
@@ -28,7 +27,6 @@ def register_handlers(dp):
     dp.callback_query.register(show_menu_callback, F.data == "show_menu")
     dp.callback_query.register(toggle_preference, F.data.startswith("toggle_"))
     dp.callback_query.register(admin_callback, F.data.startswith("admin_"))
-    dp.callback_query.register(feedback_callback, F.data.startswith("fb_"))
 
 
 async def show_menu_callback(callback: CallbackQuery):
@@ -113,7 +111,7 @@ async def admin_callback(callback: CallbackQuery):
         text = await format_admin_dashboard()
         keyboard = await build_admin_dashboard_keyboard()
         try:
-            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
+            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
             await callback.answer("✅ Dashboard refreshed")
         except Exception as e:
             if "message is not modified" in str(e):
@@ -131,45 +129,104 @@ async def admin_callback(callback: CallbackQuery):
         await callback.answer("👥 User management")
 
     elif action == "cleanup":
-        audit_logger.info(f"ADMIN_ACTION: Admin {user_id} opened cleanup menu")
         from ..core.app import db
         from datetime import datetime, timedelta
 
-        # Get cleanup statistics
-        all_users = await db.get_all_users()
-        three_days_ago = datetime.now() - timedelta(days=3)
-        inactive_users = sum(1 for u in all_users if u["last_activity"] < three_days_ago)
+        if len(action_parts) == 2:
+            # Show cleanup menu
+            audit_logger.info(f"ADMIN_ACTION: Admin {user_id} opened cleanup menu")
 
-        # Check TTS cache size
-        import os
-        tts_cache_path = "data/cache/tts"
-        cache_files = 0
-        cache_size = 0
-        if os.path.exists(tts_cache_path):
-            for file in os.listdir(tts_cache_path):
-                if file.endswith('.ogg'):
-                    cache_files += 1
-                    cache_size += os.path.getsize(os.path.join(tts_cache_path, file))
-        cache_size_mb = cache_size / (1024 * 1024)
+            # Get cleanup statistics
+            all_users = await db.get_all_users()
+            seven_days_ago = datetime.now() - timedelta(days=7)
+            inactive_users = sum(1 for u in all_users if u["last_activity"] < seven_days_ago)
 
-        text = (
-            "🧹 *Cleanup \\& Maintenance*\n\n"
-            f"📊 *Current Status:*\n"
-            f"• Inactive users \\(\\>3 days\\): `{inactive_users}`\n"
-            f"• TTS cache files: `{cache_files}`\n"
-            f"• TTS cache size: `{cache_size_mb:.2f} MB`\n\n"
-            "⚠️ *Warning:* Cleanup operations are irreversible\\!\n"
-            "Select an option below:"
-        )
-        keyboard = await build_admin_cleanup_keyboard()
-        try:
-            await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
-            await callback.answer("🧹 Cleanup menu")
-        except Exception as e:
-            if "message is not modified" in str(e):
-                await callback.answer("🧹 Cleanup menu already open")
-            else:
-                raise
+            # Check TTS cache size
+            import os
+            tts_cache_path = "data/cache/tts"
+            cache_files = 0
+            cache_size = 0
+            if os.path.exists(tts_cache_path):
+                for file in os.listdir(tts_cache_path):
+                    if file.endswith('.ogg'):
+                        cache_files += 1
+                        cache_size += os.path.getsize(os.path.join(tts_cache_path, file))
+            cache_size_mb = cache_size / (1024 * 1024)
+
+            text = (
+                "🧹 *Cleanup \\& Maintenance*\n\n"
+                f"📊 *Current Status:*\n"
+                f"• Inactive users \\(\\>7 days\\): `{inactive_users}`\n"
+                f"• TTS cache files: `{cache_files}`\n"
+                f"• TTS cache size: `{cache_size_mb:.2f} MB`\n\n"
+                "⚠️ *Warning:* Cleanup operations are irreversible\\!\n"
+                "Select an option below:"
+            )
+            keyboard = await build_admin_cleanup_keyboard()
+            try:
+                await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
+                await callback.answer("🧹 Cleanup menu")
+            except Exception as e:
+                if "message is not modified" in str(e):
+                    await callback.answer("🧹 Cleanup menu already open")
+                else:
+                    raise
+
+        else:
+            cleanup_action = action_parts[2]
+
+            if cleanup_action == "users":
+                audit_logger.info(f"ADMIN_ACTION: Admin {user_id} initiated inactive users cleanup")
+                try:
+                    deleted_count = await db.delete_inactive_users(days=7)
+                    text = (
+                        f"✅ *Cleanup Complete*\n\n"
+                        f"Deleted `{deleted_count}` inactive users \\(\\>7 days\\)\\.\n\n"
+                        f"Database has been cleaned\\."
+                    )
+                    keyboard = await build_admin_cleanup_keyboard()
+                    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
+                    await callback.answer(f"✅ Deleted {deleted_count} users")
+                except Exception as e:
+                    logger.error(f"Error during user cleanup: {e}")
+                    await callback.answer("❌ Error during cleanup", show_alert=True)
+
+            elif cleanup_action == "cache":
+                audit_logger.info(f"ADMIN_ACTION: Admin {user_id} initiated TTS cache cleanup")
+                try:
+                    deleted_count, deleted_size = await db.clear_tts_cache(days=7)
+                    text = (
+                        f"✅ *Cache Cleanup Complete*\n\n"
+                        f"Deleted `{deleted_count}` cache files\n"
+                        f"Freed `{deleted_size:.2f} MB` of disk space\\.\n\n"
+                        f"Cache has been cleaned\\."
+                    )
+                    keyboard = await build_admin_cleanup_keyboard()
+                    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
+                    await callback.answer(f"✅ Freed {deleted_size:.2f} MB")
+                except Exception as e:
+                    logger.error(f"Error during cache cleanup: {e}")
+                    await callback.answer("❌ Error during cleanup", show_alert=True)
+
+            elif cleanup_action == "all":
+                audit_logger.info(f"ADMIN_ACTION: Admin {user_id} initiated full cleanup")
+                try:
+                    deleted_users = await db.delete_inactive_users(days=7)
+                    deleted_files, deleted_size = await db.clear_tts_cache(days=7)
+                    text = (
+                        f"✅ *Full Cleanup Complete*\n\n"
+                        f"📊 *Results:*\n"
+                        f"• Deleted users: `{deleted_users}`\n"
+                        f"• Deleted cache files: `{deleted_files}`\n"
+                        f"• Freed space: `{deleted_size:.2f} MB`\n\n"
+                        f"System has been fully cleaned\\!"
+                    )
+                    keyboard = await build_admin_cleanup_keyboard()
+                    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
+                    await callback.answer(f"✅ Full cleanup complete")
+                except Exception as e:
+                    logger.error(f"Error during full cleanup: {e}")
+                    await callback.answer("❌ Error during cleanup", show_alert=True)
 
     elif action == "server" and len(action_parts) > 2 and action_parts[2] == "status":
         audit_logger.info(f"ADMIN_ACTION: Admin {user_id} requested server status")
@@ -179,13 +236,14 @@ async def admin_callback(callback: CallbackQuery):
             # Create back button
             from ..utils.keyboards import InlineKeyboardButton, InlineKeyboardMarkup
             back_button = InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="🔙 Back to Dashboard", callback_data="admin_refresh")
+                InlineKeyboardButton(text="🔄 Refresh", callback_data="admin_server_status"),
+                InlineKeyboardButton(text="🔙 Back", callback_data="admin_refresh"),
             ]])
 
             await callback.message.edit_text(
                 status_text,
                 reply_markup=back_button,
-                parse_mode="Markdown"
+                parse_mode="MarkdownV2"
             )
             await callback.answer("📊 Server status loaded")
         except Exception as e:
@@ -207,72 +265,6 @@ async def admin_callback(callback: CallbackQuery):
         keyboard = await build_admin_users_keyboard()
         await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
         await callback.answer(f"✅ User {target_user_id} {action_text}")
-
-    elif len(action_parts) >= 2 and action_parts[1] == "cleanup":
-        from ..core.app import db
-
-        if len(action_parts) < 3:
-            await callback.answer("❌ Invalid cleanup action")
-            return
-
-        cleanup_action = action_parts[2]
-
-        if cleanup_action == "users":
-            audit_logger.info(f"ADMIN_ACTION: Admin {user_id} initiated inactive users cleanup")
-            try:
-                deleted_count = await db.delete_inactive_users(days=3)
-                text = (
-                    f"✅ *Cleanup Complete*\n\n"
-                    f"Deleted `{deleted_count}` inactive users \\(\\>3 days\\)\\.\n\n"
-                    f"Database has been cleaned\\."
-                )
-                keyboard = await build_admin_cleanup_keyboard()
-                await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
-                await callback.answer(f"✅ Deleted {deleted_count} users")
-            except Exception as e:
-                logger.error(f"Error during user cleanup: {e}")
-                await callback.answer("❌ Error during cleanup", show_alert=True)
-
-        elif cleanup_action == "cache":
-            audit_logger.info(f"ADMIN_ACTION: Admin {user_id} initiated TTS cache cleanup")
-            try:
-                deleted_count, deleted_size = await db.clear_tts_cache(days=3)
-                text = (
-                    f"✅ *Cache Cleanup Complete*\n\n"
-                    f"Deleted `{deleted_count}` cache files\n"
-                    f"Freed `{deleted_size:.2f} MB` of disk space\\.\n\n"
-                    f"Cache has been cleaned\\."
-                )
-                keyboard = await build_admin_cleanup_keyboard()
-                await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
-                await callback.answer(f"✅ Freed {deleted_size:.2f} MB")
-            except Exception as e:
-                logger.error(f"Error during cache cleanup: {e}")
-                await callback.answer("❌ Error during cleanup", show_alert=True)
-
-        elif cleanup_action == "all":
-            audit_logger.info(f"ADMIN_ACTION: Admin {user_id} initiated full cleanup")
-            try:
-                # Delete inactive users
-                deleted_users = await db.delete_inactive_users(days=3)
-
-                # Clear TTS cache
-                deleted_files, deleted_size = await db.clear_tts_cache(days=3)
-
-                text = (
-                    f"✅ *Full Cleanup Complete*\n\n"
-                    f"📊 *Results:*\n"
-                    f"• Deleted users: `{deleted_users}`\n"
-                    f"• Deleted cache files: `{deleted_files}`\n"
-                    f"• Freed space: `{deleted_size:.2f} MB`\n\n"
-                    f"System has been fully cleaned\\!"
-                )
-                keyboard = await build_admin_cleanup_keyboard()
-                await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="MarkdownV2")
-                await callback.answer(f"✅ Full cleanup complete")
-            except Exception as e:
-                logger.error(f"Error during full cleanup: {e}")
-                await callback.answer("❌ Error during cleanup", show_alert=True)
 
     elif action == "model" and len(action_parts) > 2 and action_parts[2] == "select":
         # Show model selection menu
@@ -322,62 +314,3 @@ async def admin_callback(callback: CallbackQuery):
             await callback.answer(f"✅ Switched to {model_info.get('name', new_model)}")
         else:
             await callback.answer("❌ Invalid model", show_alert=True)
-
-
-async def feedback_callback(callback: CallbackQuery):
-    """Handle translation feedback callbacks (👍/👎 buttons)"""
-    user_id = callback.from_user.id
-
-    # Check if user is disabled
-    if await is_user_disabled(user_id):
-        await callback.answer("❌ Access disabled", show_alert=True)
-        return
-
-    # Parse callback data: fb_pos_<feedback_id> or fb_neg_<feedback_id>
-    parts = callback.data.split("_")
-    if len(parts) != 3:
-        await callback.answer("❌ Invalid feedback data")
-        return
-
-    # Explicitly validate feedback type
-    feedback_type_code = parts[1]
-    if feedback_type_code == "pos":
-        feedback_type = "positive"
-    elif feedback_type_code == "neg":
-        feedback_type = "negative"
-    else:
-        logger.warning(f"Invalid feedback type code: {feedback_type_code}")
-        await callback.answer("❌ Invalid feedback type")
-        return
-
-    feedback_id = parts[2]
-
-    # Get stored feedback data
-    feedback_data = get_feedback_data(feedback_id)
-    if not feedback_data:
-        await callback.answer("⏰ Feedback expired. Please provide feedback on newer translations.")
-        return
-
-    # Save feedback to database
-    success = await db.save_translation_feedback(
-        user_id=user_id,
-        source_text=feedback_data["source_text"],
-        source_lang=feedback_data["source_lang"],
-        target_lang=feedback_data["target_lang"],
-        translated_text=feedback_data["translated_text"],
-        feedback_type=feedback_type
-    )
-
-    if success:
-        if feedback_type == "positive":
-            await callback.answer("👍 Thanks for the feedback!")
-        else:
-            await callback.answer("👎 Thanks! We'll work on improving this.")
-
-        # Remove the feedback buttons after feedback is given
-        try:
-            await callback.message.edit_reply_markup(reply_markup=None)
-        except Exception as e:
-            logger.debug(f"Could not remove feedback buttons: {e}")
-    else:
-        await callback.answer("❌ Could not save feedback. Please try again.")

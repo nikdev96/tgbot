@@ -129,7 +129,8 @@ async def voice_handler(message: Message):
         logger.error(f"Voice processing error: {e}")
         try:
             await status_msg.edit_text("❌ Couldn't process voice message. Please try again.")
-        except:
+        except Exception as e:
+            logger.error(f"Failed to edit status message: {e}")
             await message.reply("❌ Couldn't process voice message. Please try again.")
 
     finally:

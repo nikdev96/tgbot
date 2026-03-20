@@ -1,7 +1,11 @@
 """
 Text formatting utilities
 """
-import re
+import subprocess
+import psutil
+import os
+import time
+from datetime import datetime, timedelta
 
 
 def escape_markdown(text: str) -> str:
@@ -26,9 +30,9 @@ async def format_admin_dashboard() -> str:
     voice_enabled_users = sum(1 for u in all_users if u["voice_replies_enabled"])
     total_voice_responses = sum(u["voice_responses_sent"] for u in all_users)
 
-    # Calculate inactive users (>3 days)
-    three_days_ago = datetime.now() - timedelta(days=3)
-    inactive_users = sum(1 for u in all_users if u["last_activity"] < three_days_ago)
+    # Calculate inactive users (>7 days)
+    seven_days_ago = datetime.now() - timedelta(days=7)
+    inactive_users = sum(1 for u in all_users if u["last_activity"] < seven_days_ago)
 
     # Get current model info
     model_manager = get_model_manager()
@@ -42,8 +46,8 @@ async def format_admin_dashboard() -> str:
         f"🤖 *Current Model:* {model_icon} `{model_name}`\n\n"
         "📊 *Statistics:*\n"
         f"• Total Users: `{total_users}`\n"
-        f"• Active: `{active_users}` | Disabled: `{disabled_users}`\n"
-        f"• Inactive \\(\\>3 days\\): `{inactive_users}`\n"
+        f"• Active: `{active_users}` \\| Disabled: `{disabled_users}`\n"
+        f"• Inactive \\(\\>7 days\\): `{inactive_users}`\n"
         f"• Voice Replies: `{voice_enabled_users}` users\n"
         f"• Voice Messages Sent: `{total_voice_responses}`\n\n"
         "📋 *Use buttons below to navigate*"
@@ -79,19 +83,12 @@ async def format_users_list() -> str:
 
     return text
 
-import subprocess
-import psutil
-import os
-import time
-from datetime import datetime, timedelta
-
-
 async def format_server_status() -> str:
     """Format server status information for admin dashboard"""
     try:
         # Bot service status
         try:
-            result = subprocess.run(['systemctl', 'is-active', 'translator-bot.service'], 
+            result = subprocess.run(['systemctl', 'is-active', 'tgbot.service'],
                                  capture_output=True, text=True)
             bot_status = "🟢 Running" if result.stdout.strip() == 'active' else "🔴 Stopped"
         except Exception:
@@ -118,7 +115,7 @@ async def format_server_status() -> str:
         
         # Bot process info
         try:
-            result = subprocess.run(['systemctl', 'show', 'translator-bot.service', 
+            result = subprocess.run(['systemctl', 'show', 'tgbot.service',
                                    '--property', 'MainPID', '--value'], 
                                  capture_output=True, text=True)
             pid = result.stdout.strip()
@@ -157,7 +154,7 @@ async def format_server_status() -> str:
             f"• Automatic checks: ✅ Every 2 minutes\n"
             f"• SystemD alerts: ✅ Configured\n"
             f"• Telegram alerts: ✅ Active\n\n"
-            f"_Report generated at {current_time}_"
+            f"_Report generated at {current_time.replace('-', '\\-')}_"
         )
         
         return text

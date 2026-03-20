@@ -212,4 +212,4 @@ async def admin_handler(message: Message):
     dashboard_text = await format_admin_dashboard()
     keyboard = await build_admin_dashboard_keyboard()
 
-    await message.answer(dashboard_text, reply_markup=keyboard, parse_mode="Markdown")
+    await message.answer(dashboard_text, reply_markup=keyboard, parse_mode="MarkdownV2")

@@ -6,10 +6,7 @@ from aiogram import Bot
 from aiogram.types import MessageReactionUpdated, ReactionTypeEmoji
 
 from ..core.app import bot
-from ..core.constants import SUPPORTED_LANGUAGES
-from ..services.language import detect_language
-from ..services.analytics import get_user_preferences, is_user_disabled
-from ..services.translation import translate_text
+from ..services.analytics import is_user_disabled
 
 logger = logging.getLogger(__name__)
 

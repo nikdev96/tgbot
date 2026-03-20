@@ -30,7 +30,6 @@ from ..services.analytics import (
 from ..services.language import detect_language
 from ..services.model_manager import get_model_manager
 from ..utils.formatting import escape_markdown
-from ..utils.keyboards import build_translation_feedback_keyboard, store_feedback_data
 
 logger = logging.getLogger(__name__)
 
@@ -236,7 +235,7 @@ async def translate_text(text: str, source_lang: str, target_langs: Set[str], co
 
     # Check cache first (include context and style in cache key)
     context_hash = hashlib.md5(context.encode()).hexdigest()[:8] if context else ""
-    cache_key = hashlib.md5(f"{normalized_text}:{source_lang}:{sorted(target_langs)}:{context_hash}:{style}".encode()).hexdigest()
+    cache_key = hashlib.md5(f"{normalized_text}:{source_lang}:{','.join(sorted(target_langs))}:{context_hash}:{style}".encode()).hexdigest()
     if cache_key in translation_cache:
         increment_cache_stat("translation", hit=True)
         elapsed_ms = (time.time() - start_time) * 1000
@@ -327,7 +326,7 @@ async def translate_text_stream(
     normalized_text = normalize_text_for_cache(text)
     context_hash = hashlib.md5(context.encode()).hexdigest()[:8] if context else ""
     cache_key = hashlib.md5(
-        f"{normalized_text}:{source_lang}:{sorted(target_langs)}:{context_hash}:{style}".encode()
+        f"{normalized_text}:{source_lang}:{','.join(sorted(target_langs))}:{context_hash}:{style}".encode()
     ).hexdigest()
 
     if cache_key in translation_cache:
