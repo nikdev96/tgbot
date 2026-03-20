@@ -4,6 +4,7 @@ Core application components: Bot, Dispatcher, OpenAI client
 import logging
 import os
 import re
+import shutil
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 from openai import AsyncOpenAI
@@ -60,6 +61,10 @@ def validate_env_vars():
 # Validate environment variables on startup
 validate_env_vars()
 logger.info("Environment variables validated successfully")
+
+# Check ffmpeg availability (required for voice message processing)
+if not shutil.which("ffmpeg"):
+    raise RuntimeError("ffmpeg not found — install it: sudo apt install ffmpeg")
 
 # Initialize FSM storage
 storage = MemoryStorage()

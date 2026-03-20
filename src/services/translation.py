@@ -9,14 +9,13 @@ Features:
 """
 import asyncio
 import hashlib
-import json
 import logging
 import re
 import shutil
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Set, Optional, Literal
+from typing import AsyncGenerator, Dict, Set, Optional, Literal, Tuple
 from aiogram.types import Message, FSInputFile
 from aiogram.exceptions import TelegramBadRequest
 from openai import AsyncOpenAI
@@ -31,7 +30,6 @@ from ..services.analytics import (
 from ..services.language import detect_language
 from ..services.model_manager import get_model_manager
 from ..utils.formatting import escape_markdown
-from ..data.glossary import format_glossary_hints
 from ..utils.keyboards import build_translation_feedback_keyboard, store_feedback_data
 
 logger = logging.getLogger(__name__)
@@ -126,6 +124,13 @@ def detect_text_style(text: str) -> TextStyle:
     return "neutral"
 
 
+STYLE_NOTES_COMPACT: Dict[str, str] = {
+    "casual": "Informal, slang OK, playful tone.",
+    "formal": "Formal, polite, professional vocabulary.",
+    "neutral": "Natural conversational tone.",
+}
+
+
 def build_localization_prompt(
     text: str,
     source_lang: str,
@@ -133,29 +138,10 @@ def build_localization_prompt(
     context: Optional[str] = None,
     style: Optional[TextStyle] = None
 ) -> str:
-    """Build adaptive localization prompt.
-
-    Creates a prompt that instructs the model to LOCALIZE (adapt culturally)
-    rather than literally translate. Includes style-specific instructions.
-
-    Args:
-        text: Text to translate
-        source_lang: Source language code
-        target_langs: Set of target language codes
-        context: Optional previous messages for context
-        style: Detected text style (auto-detected if None)
-
-    Returns:
-        Complete prompt for OpenAI API
-
-    Raises:
-        ValueError: If source_lang or any target_lang is not supported
-    """
-    # Validate source language
+    """Build compact adaptive localization prompt with marker output format."""
     if source_lang not in SUPPORTED_LANGUAGES:
         raise ValueError(f"Unsupported source language: {source_lang}")
 
-    # Validate and filter target languages
     valid_target_langs = {lang for lang in target_langs if lang in SUPPORTED_LANGUAGES}
     invalid_langs = target_langs - valid_target_langs
     if invalid_langs:
@@ -164,65 +150,52 @@ def build_localization_prompt(
     if not valid_target_langs:
         raise ValueError(f"No valid target languages provided. Invalid: {target_langs}")
 
-    # Auto-detect style if not provided
     if style is None:
         style = detect_text_style(text)
 
     target_langs_list = sorted(list(valid_target_langs))
-    json_example = {lang: f"localized text in {SUPPORTED_LANGUAGES[lang]['name']}" for lang in target_langs_list}
 
-    # Build context section
-    context_section = ""
-    if context:
-        context_section = f"""PREVIOUS CONVERSATION (for context and consistency):
-{context}
-
----
-
-"""
-
-    # Build language-specific hints
+    # Language-specific hints only for languages that need them
     lang_hints = []
     for lang in target_langs_list:
         if lang == "th":
-            lang_hints.append("- Thai: Use appropriate politeness particles (ครับ/ค่ะ) based on formality")
+            lang_hints.append("Thai: use ครับ/ค่ะ based on formality.")
         elif lang == "vi":
-            lang_hints.append("- Vietnamese: Use appropriate pronouns and formality markers")
-        elif lang == "ru":
-            lang_hints.append("- Russian: Match the register (ты/вы) appropriately")
+            lang_hints.append("Vietnamese: use appropriate pronouns.")
 
-    lang_hints_section = ""
-    if lang_hints:
-        lang_hints_section = "\n" + "\n".join(lang_hints)
+    hints_line = (" " + " ".join(lang_hints)) if lang_hints else ""
+    context_line = f"\nContext: {context}" if context else ""
+    langs_str = ", ".join(SUPPORTED_LANGUAGES[lang]["name"] for lang in target_langs_list)
+    output_markers = "\n".join(
+        f"[{lang.upper()}]translation[/{lang.upper()}]" for lang in target_langs_list
+    )
 
-    # Add glossary hints
-    glossary_section = format_glossary_hints(source_lang, target_langs)
-
-    # Build the main prompt
-    prompt = f"""{context_section}You are a professional translator and localization expert.
-Your task is to LOCALIZE (not literally translate) the text for native speakers of each target language.
-
-LOCALIZATION RULES:
-1. Adapt idioms and expressions to natural equivalents in the target language
-2. Adjust formality level to match cultural norms of each target language
-3. Preserve the original MEANING, INTENT, and TONE - not the exact words
-4. Keep all emojis exactly as they appear in the original
-5. For slang/colloquial text, use natural equivalents, not formal translations
-6. Ensure the text sounds like it was originally written by a native speaker
-
-DETECTED STYLE: {style.upper()}
-{STYLE_INSTRUCTIONS[style]}{lang_hints_section}{glossary_section}
-
-Source language: {SUPPORTED_LANGUAGES[source_lang]['name']}
-Target languages: {', '.join([SUPPORTED_LANGUAGES[lang]['name'] for lang in target_langs_list])}
-
-TEXT TO LOCALIZE:
-{text}
-
-Respond with ONLY valid JSON in this exact format:
-{json.dumps(json_example, ensure_ascii=False, indent=2)}"""
+    prompt = (
+        f"Localize for native speakers. Style: {style}. Preserve meaning, tone, emojis.\n"
+        f"{STYLE_NOTES_COMPACT[style]}{hints_line}{context_line}\n"
+        f"Source: {SUPPORTED_LANGUAGES[source_lang]['name']} → {langs_str}\n\n"
+        f"Output EXACTLY in this format (no JSON, no extra text):\n"
+        f"{output_markers}\n\n"
+        f"TEXT: {text}"
+    )
 
     return prompt
+
+
+def parse_marker_response(content: str, target_langs: Set[str]) -> Dict[str, str]:
+    """Parse [XX]...[/XX] marker format from model response."""
+    translations = {}
+    for lang_code in target_langs:
+        tag = lang_code.upper()
+        start_tag = f"[{tag}]"
+        end_tag = f"[/{tag}]"
+        if start_tag in content and end_tag in content:
+            start_idx = content.index(start_tag) + len(start_tag)
+            end_idx = content.index(end_tag)
+            translation = content[start_idx:end_idx].strip()
+            if translation:
+                translations[lang_code] = translation
+    return translations
 
 
 async def translate_text(text: str, source_lang: str, target_langs: Set[str], context: Optional[str] = None) -> Dict[str, str]:
@@ -290,38 +263,18 @@ async def translate_text(text: str, source_lang: str, target_langs: Set[str], co
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=config.translation.max_tokens,
                 temperature=0.3,
-                response_format={"type": "json_object"}
             )
 
             content = response.choices[0].message.content.strip()
 
-            # Parse JSON response
-            parsed_response = json.loads(content)
-
-            translations = {}
-
-            # Map language codes from response
-            for lang_code in target_langs:
-                # Try exact language code match
-                if lang_code in parsed_response:
-                    translations[lang_code] = parsed_response[lang_code]
-                # Try language name match
-                elif SUPPORTED_LANGUAGES[lang_code]["name"] in parsed_response:
-                    translations[lang_code] = parsed_response[SUPPORTED_LANGUAGES[lang_code]["name"]]
-                # Try lowercase variations
-                elif lang_code.lower() in parsed_response:
-                    translations[lang_code] = parsed_response[lang_code.lower()]
-                elif SUPPORTED_LANGUAGES[lang_code]["name"].lower() in parsed_response:
-                    translations[lang_code] = parsed_response[SUPPORTED_LANGUAGES[lang_code]["name"].lower()]
+            # Parse marker format response
+            translations = parse_marker_response(content, target_langs)
 
             # Validate completeness
             missing_langs = target_langs - set(translations.keys())
             if missing_langs:
                 logger.warning(f"Incomplete translation. Requested: {len(target_langs)}, Got: {len(translations)}, Missing: {missing_langs}")
-                logger.debug(f"Response keys: {list(parsed_response.keys())}")
-                # If we got at least some translations, use them
                 if not translations:
-                    # Complete failure, retry
                     if attempt < config.translation.max_retries - 1:
                         await asyncio.sleep(config.translation.retry_delay_base ** attempt)
                         continue
@@ -340,18 +293,114 @@ async def translate_text(text: str, source_lang: str, target_langs: Set[str], co
             )
             return translations
 
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON parsing error (attempt {attempt + 1}): {e}, Response: {content[:200]}")
-            if attempt < config.translation.max_retries - 1:
-                await asyncio.sleep(config.translation.retry_delay_base ** attempt)
-                continue
-            return {}
         except Exception as e:
             logger.error(f"OpenAI API error (attempt {attempt + 1}): {e}")
             if attempt < config.translation.max_retries - 1:
                 await asyncio.sleep(config.translation.retry_delay_base ** attempt)
                 continue
             return {}
+
+
+async def translate_text_stream(
+    text: str,
+    source_lang: str,
+    target_langs: Set[str],
+    context: Optional[str] = None
+) -> AsyncGenerator[Tuple[str, str], None]:
+    """Async generator that yields (lang_code, translation) as each language completes.
+
+    On cache hit yields all translations immediately. On cache miss streams from
+    the API and yields each language as its closing marker is received.
+    """
+    if not text or not text.strip():
+        return
+
+    text = text.strip()
+
+    if source_lang in target_langs:
+        target_langs = target_langs - {source_lang}
+
+    if not target_langs:
+        return
+
+    style = detect_text_style(text)
+    normalized_text = normalize_text_for_cache(text)
+    context_hash = hashlib.md5(context.encode()).hexdigest()[:8] if context else ""
+    cache_key = hashlib.md5(
+        f"{normalized_text}:{source_lang}:{sorted(target_langs)}:{context_hash}:{style}".encode()
+    ).hexdigest()
+
+    if cache_key in translation_cache:
+        increment_cache_stat("translation", hit=True)
+        for lang_code, translation in translation_cache[cache_key].items():
+            yield lang_code, translation
+        return
+
+    increment_cache_stat("translation", hit=False)
+
+    prompt = build_localization_prompt(text, source_lang, target_langs, context, style)
+
+    model_manager = get_model_manager()
+    current_model = model_manager.get_current_model()
+
+    start_time = time.time()
+    buffer = ""
+    found_langs: Set[str] = set()
+    translations: Dict[str, str] = {}
+
+    try:
+        stream = await openai_client.chat.completions.create(
+            model=current_model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=config.translation.max_tokens,
+            temperature=0.3,
+            stream=True,
+        )
+
+        async for chunk in stream:
+            if chunk.choices and chunk.choices[0].delta.content:
+                buffer += chunk.choices[0].delta.content
+
+            for lang_code in target_langs:
+                if lang_code in found_langs:
+                    continue
+                tag = lang_code.upper()
+                start_tag = f"[{tag}]"
+                end_tag = f"[/{tag}]"
+                if start_tag in buffer and end_tag in buffer:
+                    start_idx = buffer.index(start_tag) + len(start_tag)
+                    end_idx = buffer.index(end_tag)
+                    translation = buffer[start_idx:end_idx].strip()
+                    if translation:
+                        found_langs.add(lang_code)
+                        translations[lang_code] = translation
+                        yield lang_code, translation
+
+        if translations:
+            translation_cache[cache_key] = translations
+
+        elapsed_ms = (time.time() - start_time) * 1000
+        missing = target_langs - found_langs
+        if missing:
+            logger.warning(f"Stream translation incomplete. Missing: {missing}")
+        logger.info(
+            f"Translation stream: {source_lang}→{list(target_langs)}, "
+            f"chars={len(text)}, style={style}, "
+            f"time={elapsed_ms:.0f}ms, model={current_model}"
+        )
+
+    except Exception as e:
+        logger.error(f"Streaming translation error: {e}")
+        missing = target_langs - found_langs
+        if missing:
+            try:
+                fallback = await translate_text(text, source_lang, missing, context)
+                for lang_code, translation in fallback.items():
+                    if lang_code not in found_langs:
+                        translations[lang_code] = translation
+                        yield lang_code, translation
+            except Exception as fb_err:
+                logger.error(f"Fallback translation error: {fb_err}")
 
 
 async def generate_tts_audio(text: str) -> Optional[Path]:
@@ -448,7 +497,7 @@ async def generate_parallel_voice_responses(message: Message, user_id: int, tran
 
                 # Send voice message
                 voice_input = FSInputFile(tts_audio_path, filename=f"voice_{lang_code}.ogg")
-                await message.reply_voice(voice_input, caption=caption)
+                await message.answer_voice(voice_input, caption=caption)
 
                 successful_responses += 1
                 logger.info(f"Voice response sent to user {user_id} in {lang_code}")
@@ -536,12 +585,6 @@ async def process_translation(message: Message, text: str, source_type: str = "t
             return
 
     try:
-        # Use existing early_response_msg or create new status message
-        if early_response_msg is None:
-            status_msg = await message.reply("🔄 Translating...")
-        else:
-            status_msg = early_response_msg
-
         # Get context from previous messages (only for private chats)
         context = None
         if message.chat.type == "private":
@@ -556,47 +599,40 @@ async def process_translation(message: Message, text: str, source_type: str = "t
             except Exception as e:
                 logger.warning(f"Could not get context for user {user_id}: {e}")
 
-        # Start translation with context
+        if early_response_msg is None:
+            status_msg = await message.answer("🔄 Translating...")
+        else:
+            status_msg = early_response_msg
+
         translations = await translate_text(text, source_lang, target_langs, context=context)
 
-        # Save message to context history (after successful translation)
+        await status_msg.delete()
+
+        # Save message to context history
         try:
             target_langs_str = ",".join(sorted(target_langs))
             await db.save_user_message(user_id, text, source_lang, target_langs_str)
         except Exception as e:
             logger.warning(f"Could not save message to context: {e}")
 
-        # Delete status message
-        try:
-            await status_msg.delete()
-        except TelegramBadRequest as e:
-            logger.debug(f"Status message already deleted or not found: {e}")
-
         if not translations:
             await message.reply("❌ Translation failed. Please try again.")
             return
 
-        # For voice messages, send transcription if not already shown (early_response_msg would have it)
+        # For voice without early_response_msg: show transcription now
         if source_type == "voice" and early_response_msg is None:
             source_info = SUPPORTED_LANGUAGES[source_lang]
-            # Truncate long transcriptions for display
             max_len = config.translation.display_truncate_length
             display_text = text if len(text) <= max_len else text[:max_len-3] + "..."
             escaped_text = escape_markdown(display_text)
-            await message.reply(
+            await message.answer(
                 f"🎤 {source_info['flag']} Transcribed ({source_info['name']}):\n"
                 f"_{escaped_text}_",
                 parse_mode="Markdown"
             )
 
-        # Send translations with feedback buttons
         for lang_code, translation in translations.items():
-            # Store feedback data and create keyboard
-            store_feedback_data(text, source_lang, lang_code, translation)
-            feedback_keyboard = build_translation_feedback_keyboard(
-                text, source_lang, lang_code, translation
-            )
-            await message.reply(translation, reply_markup=feedback_keyboard)
+            await message.answer(translation)
 
         # Generate and send voice response if enabled (PARALLEL TTS)
         if await is_voice_replies_enabled(user_id) and translations:
@@ -604,11 +640,9 @@ async def process_translation(message: Message, text: str, source_type: str = "t
 
     except Exception as e:
         logger.error(f"Translation error: {e}")
-        try:
-            if early_response_msg:
+        if early_response_msg:
+            try:
                 await early_response_msg.delete()
-            else:
-                await status_msg.delete()
-        except TelegramBadRequest as delete_error:
-            logger.debug(f"Could not delete status message: {delete_error}")
+            except TelegramBadRequest:
+                pass
         await message.reply("❌ An error occurred. Please try again.")
