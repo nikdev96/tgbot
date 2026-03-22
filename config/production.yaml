@@ -15,8 +15,8 @@ audio:
 tts:
   max_characters: 500
   timeout_seconds: 30
-  voice: "alloy"  # Options: alloy, echo, fable, onyx, nova, shimmer
-  model: "tts-1"  # Options: tts-1, tts-1-hd
+  voice: "nova"      # Options: alloy, echo, fable, onyx, nova, shimmer
+  model: "tts-1-hd"  # Options: tts-1, tts-1-hd
   speed: 1.0      # Speech speed (0.25 to 4.0)
 
 # Translation settings

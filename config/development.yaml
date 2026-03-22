@@ -15,8 +15,8 @@ audio:
 tts:
   max_characters: 200        # Shorter for testing
   timeout_seconds: 15
-  voice: "alloy"
-  model: "tts-1"
+  voice: "nova"
+  model: "tts-1-hd"
   speed: 1.2                 # Slightly faster for testing
 
 # Translation settings

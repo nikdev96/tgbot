@@ -112,8 +112,12 @@ class PersistentTTSCache:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_cache_key(self, text: str) -> str:
-        """Generate cache key for text"""
-        return hashlib.md5(text.encode()).hexdigest()
+        """Generate cache key from text + current voice + model so changing
+        TTS settings produces new cache entries instead of serving stale audio."""
+        from .config import get_config
+        cfg = get_config()
+        key = f"{text}:{cfg.tts.voice}:{cfg.tts.model}"
+        return hashlib.md5(key.encode()).hexdigest()
 
     def _get_cache_path(self, cache_key: str) -> Path:
         """Get file path for cache key"""

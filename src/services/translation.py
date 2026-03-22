@@ -419,7 +419,8 @@ async def generate_tts_audio(text: str) -> Optional[Path]:
             model=config.tts.model,
             voice=config.tts.voice,
             input=text,
-            response_format="opus"  # Better compression for Telegram
+            response_format="opus",  # Better compression for Telegram
+            speed=config.tts.speed,
         )
 
         # Save to persistent cache
