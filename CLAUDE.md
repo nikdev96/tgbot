@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Telegram translation bot supporting 6 languages (Russian, English, Thai, Arabic, Chinese, Vietnamese) with text and voice message translation. Built with aiogram 3.x and OpenAI APIs (GPT-4o for translation, Whisper for speech-to-text, TTS for voice responses).
+Telegram translation bot supporting 4 languages (Russian, English, Thai, Vietnamese) with text, voice, and photo translation. Built with aiogram 3.x and OpenAI APIs (GPT-4o for translation and OCR, Whisper for speech-to-text, TTS for voice responses).
 
 ## Common Commands
 
@@ -41,16 +41,22 @@ Copy `.env.example` to `.env` and set:
 ### Handler Registration Order (in `handlers/__init__.py`)
 Handlers are registered in specific order - **text handler must be last** as it catches all text messages:
 1. `commands.py` - Bot commands (/start, /menu, /admin, /help)
-2. `callbacks.py` - Inline keyboard callbacks
-3. `room_commands.py` - Room management (/room)
-4. `voice.py` - Voice message processing
-5. `text.py` - Text message translation (catch-all)
+2. `inline_queries.py` - Inline query handling
+3. `reactions.py` - Message reactions
+4. `callbacks.py` - Inline keyboard callbacks
+5. `room_commands.py` - Room management (/room)
+6. `voice.py` - Voice message processing
+7. `photo.py` - Photo OCR + translation
+8. `text.py` - Text message translation (catch-all)
 
 ### Translation Pipeline
 `services/translation.py`:
 - `translate_text()` - Uses OpenAI JSON response format, validates translations for all target languages
 - `generate_tts_audio()` - Creates voice responses with persistent file caching in `data/cache/tts/`
 - `generate_parallel_voice_responses()` - Parallel TTS generation for multiple languages
+
+`services/vision.py`:
+- `extract_text_from_photo(image_bytes)` - GPT-4o Vision OCR, base64 encoding, 45s timeout, 3 retries with backoff. Returns extracted text string or `None` on error.
 
 ### Database
 SQLite with WAL mode (`storage/database.py`). Tables: `users`, `user_language_preferences`, `rooms`, `room_members`, `room_messages`. Async methods wrap synchronous SQLite calls via `run_in_executor`.
