@@ -160,4 +160,4 @@ async def format_server_status() -> str:
         return text
         
     except Exception as e:
-        return f"❌ Error generating server status: {str(e)}"
+        return f"❌ Error generating server status: {escape_markdown(str(e))}"

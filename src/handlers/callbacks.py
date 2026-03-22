@@ -247,8 +247,11 @@ async def admin_callback(callback: CallbackQuery):
             )
             await callback.answer("📊 Server status loaded")
         except Exception as e:
-            logger.error(f"Error getting server status: {e}")
-            await callback.answer("❌ Error loading server status", show_alert=True)
+            if "message is not modified" in str(e):
+                await callback.answer("✅ Already up to date")
+            else:
+                logger.error(f"Error getting server status: {e}")
+                await callback.answer("❌ Error loading server status", show_alert=True)
 
     elif action in ["enable", "disable"]:
         target_user_id = int(action_parts[2])
