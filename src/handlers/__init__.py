@@ -26,5 +26,9 @@ def register_all_handlers(dp: Dispatcher):
     # Register voice handlers (6)
     voice.register_handlers(dp)
 
-    # Register text handlers (7 - should be last as catch-all)
+    # Register photo handlers (7)
+    from . import photo
+    photo.register_photo_handlers(dp)
+
+    # Register text handlers (8 - should be last as catch-all)
     text.register_handlers(dp)
