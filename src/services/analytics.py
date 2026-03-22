@@ -78,6 +78,11 @@ async def increment_voice_responses(user_id: int):
     await db.increment_voice_responses(user_id)
 
 
+async def get_user_settings(user_id: int) -> Dict:
+    """Get is_disabled, voice_replies_enabled, and preferences in one DB call."""
+    return await db.get_user_settings(user_id)
+
+
 async def get_user_preferences(user_id: int) -> Set[str]:
     """Get user's enabled translation languages from database"""
     return await db.get_user_preferences(user_id)

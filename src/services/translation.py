@@ -25,7 +25,7 @@ from ..core.constants import SUPPORTED_LANGUAGES, DEFAULT_LANGUAGES
 from ..core.cache import get_translation_cache, get_persistent_tts_cache, normalize_text_for_cache, increment_cache_stat
 from ..services.analytics import (
     is_user_disabled, update_user_activity, get_user_preferences,
-    is_voice_replies_enabled, increment_voice_responses
+    is_voice_replies_enabled, increment_voice_responses, get_user_settings
 )
 from ..services.language import detect_language
 from ..services.model_manager import get_model_manager
@@ -526,8 +526,22 @@ async def process_translation(message: Message, text: str, source_type: str = "t
 
     user_id = message.from_user.id
 
+    # Batch DB call: fetch is_disabled + preferences + voice_replies in one query,
+    # and in parallel fetch context (independent DB operation)
+    if message.chat.type == "private":
+        results = await asyncio.gather(
+            get_user_settings(user_id),
+            db.get_user_context(user_id, limit=3),
+            return_exceptions=True
+        )
+        user_settings = results[0] if not isinstance(results[0], Exception) else {"is_disabled": False, "voice_replies_enabled": False, "preferences": DEFAULT_LANGUAGES}
+        context_messages = results[1] if not isinstance(results[1], Exception) else []
+    else:
+        user_settings = await get_user_settings(user_id)
+        context_messages = []
+
     # Check if user is disabled
-    if await is_user_disabled(user_id):
+    if user_settings["is_disabled"]:
         audit_logger.warning(f"BLOCKED_ACCESS: Disabled user {user_id} attempted translation: {text[:50]}...")
         await message.reply(
             "❌ Access disabled. Contact support if you believe this is an error."
@@ -542,8 +556,8 @@ async def process_translation(message: Message, text: str, source_type: str = "t
         )
         return
 
-    # Update user activity
-    await update_user_activity(user_id, message.from_user)
+    # Update user activity (fire-and-forget style, don't block translation)
+    asyncio.create_task(update_user_activity(user_id, message.from_user))
 
     source_lang = detect_language(text)
     if not source_lang:
@@ -553,18 +567,13 @@ async def process_translation(message: Message, text: str, source_type: str = "t
             "🇷🇺 Russian: \"Привет, как дела?\"\n"
             "🇺🇸 English: \"Hello, how are you?\"\n"
             "🇹🇭 Thai: \"สวัสดี เป็นอย่างไรบ้าง\"\n"
-            "🇸🇦 Arabic: \"مرحبا، كيف حالك؟\"\n"
-            "🇨🇳 Chinese: \"你好，你好吗？\"\n"
             "🇻🇳 Vietnamese: \"Xin chào, bạn khỏe không?\"\n\n"
-            "_Note: French, German, Spanish and other languages are not yet supported._",
+            "_Note: Arabic, Chinese, French, German, Spanish and other languages are not yet supported._",
             parse_mode="Markdown"
         )
         return
 
-    target_langs = await get_user_preferences(message.from_user.id)
-
-    # Filter out invalid language codes
-    target_langs = {lang for lang in target_langs if lang in SUPPORTED_LANGUAGES}
+    target_langs = {lang for lang in user_settings["preferences"] if lang in SUPPORTED_LANGUAGES}
 
     # If user has no preferences, use default languages
     if not target_langs:
@@ -584,33 +593,54 @@ async def process_translation(message: Message, text: str, source_type: str = "t
             return
 
     try:
-        # Get context from previous messages (only for private chats)
+        # Build context string from already-fetched context messages
         context = None
-        if message.chat.type == "private":
+        if context_messages:
             try:
-                context_messages = await db.get_user_context(user_id, limit=3)
-                if context_messages:
-                    context_parts = []
-                    for msg in context_messages:
-                        lang_info = SUPPORTED_LANGUAGES.get(msg["language"], {"name": msg["language"]})
-                        context_parts.append(f"[{lang_info['name']}]: {msg['text']}")
-                    context = "\n".join(context_parts)
+                context_parts = []
+                for msg in context_messages:
+                    lang_info = SUPPORTED_LANGUAGES.get(msg["language"], {"name": msg["language"]})
+                    context_parts.append(f"[{lang_info['name']}]: {msg['text']}")
+                context = "\n".join(context_parts)
             except Exception as e:
-                logger.warning(f"Could not get context for user {user_id}: {e}")
+                logger.warning(f"Could not build context for user {user_id}: {e}")
 
         if early_response_msg is None:
             status_msg = await message.answer("🔄 Translating...")
         else:
             status_msg = early_response_msg
 
-        translations = await translate_text(text, source_lang, target_langs, context=context)
+        # Stream translations: send each language as it arrives from the API
+        translations = {}
+        status_deleted = False
 
-        await status_msg.delete()
+        # For voice without early_response_msg: show transcription before first translation
+        if source_type == "voice" and early_response_msg is None:
+            source_info = SUPPORTED_LANGUAGES[source_lang]
+            max_len = config.translation.display_truncate_length
+            display_text = text if len(text) <= max_len else text[:max_len-3] + "..."
+            escaped_text = escape_markdown(display_text)
+            await status_msg.edit_text(
+                f"🎤 {source_info['flag']} Transcribed ({source_info['name']}):\n"
+                f"_{escaped_text}_\n\n🔄 Translating...",
+                parse_mode="Markdown"
+            )
+            status_deleted = False  # will be deleted on first translation below
 
-        # Save message to context history
+        async for lang_code, translation in translate_text_stream(text, source_lang, target_langs, context=context):
+            translations[lang_code] = translation
+            if not status_deleted:
+                await status_msg.delete()
+                status_deleted = True
+            await message.answer(translation)
+
+        if not status_deleted:
+            await status_msg.delete()
+
+        # Save message to context history (non-blocking)
         try:
             target_langs_str = ",".join(sorted(target_langs))
-            await db.save_user_message(user_id, text, source_lang, target_langs_str)
+            asyncio.create_task(db.save_user_message(user_id, text, source_lang, target_langs_str))
         except Exception as e:
             logger.warning(f"Could not save message to context: {e}")
 
@@ -618,23 +648,8 @@ async def process_translation(message: Message, text: str, source_type: str = "t
             await message.reply("❌ Translation failed. Please try again.")
             return
 
-        # For voice without early_response_msg: show transcription now
-        if source_type == "voice" and early_response_msg is None:
-            source_info = SUPPORTED_LANGUAGES[source_lang]
-            max_len = config.translation.display_truncate_length
-            display_text = text if len(text) <= max_len else text[:max_len-3] + "..."
-            escaped_text = escape_markdown(display_text)
-            await message.answer(
-                f"🎤 {source_info['flag']} Transcribed ({source_info['name']}):\n"
-                f"_{escaped_text}_",
-                parse_mode="Markdown"
-            )
-
-        for lang_code, translation in translations.items():
-            await message.answer(translation)
-
         # Generate and send voice response if enabled (PARALLEL TTS)
-        if await is_voice_replies_enabled(user_id) and translations:
+        if user_settings["voice_replies_enabled"] and translations:
             await generate_parallel_voice_responses(message, user_id, translations)
 
     except Exception as e:

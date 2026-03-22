@@ -81,3 +81,14 @@ openai_client = AsyncOpenAI(
 # Initialize database manager
 from ..storage.database import DatabaseManager
 db = DatabaseManager(config.database.path)
+
+# Cached bot info (populated on first call to get_bot_info())
+_bot_info = None
+
+
+async def get_bot_info():
+    """Return cached bot info, fetching from Telegram only on first call."""
+    global _bot_info
+    if _bot_info is None:
+        _bot_info = await bot.get_me()
+    return _bot_info

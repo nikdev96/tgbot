@@ -7,7 +7,7 @@ from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from ..services.analytics import is_user_disabled, update_user_activity
 from ..services.translation import process_translation
-from ..core.app import audit_logger, bot
+from ..core.app import audit_logger, bot, get_bot_info
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ async def text_handler(message: Message, state: FSMContext):
 
     # Handle group chats
     if message.chat.type in ["group", "supergroup"]:
-        bot_info = await bot.get_me()
+        bot_info = await get_bot_info()
         bot_id = bot_info.id
         bot_username = bot_info.username
 

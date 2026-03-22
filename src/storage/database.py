@@ -150,6 +150,36 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    async def get_user_settings(self, user_id: int) -> Dict:
+        """Get is_disabled, voice_replies_enabled, and preferences in one query."""
+        return await asyncio.get_event_loop().run_in_executor(
+            None, self._get_user_settings_sync, user_id
+        )
+
+    def _get_user_settings_sync(self, user_id: int) -> Dict:
+        conn = self._get_connection()
+        try:
+            row = conn.execute(
+                "SELECT is_disabled, voice_replies_enabled FROM users WHERE id = ?",
+                (user_id,)
+            ).fetchone()
+
+            prefs_rows = conn.execute(
+                "SELECT language_code FROM user_language_preferences WHERE user_id = ?",
+                (user_id,)
+            ).fetchall()
+            preferences = {r["language_code"] for r in prefs_rows} or DEFAULT_LANGUAGES
+
+            if row is None:
+                return {"is_disabled": False, "voice_replies_enabled": False, "preferences": preferences}
+            return {
+                "is_disabled": bool(row["is_disabled"]),
+                "voice_replies_enabled": bool(row["voice_replies_enabled"]),
+                "preferences": preferences,
+            }
+        finally:
+            conn.close()
+
     async def get_user_preferences(self, user_id: int) -> Set[str]:
         """Get user's language preferences from database"""
         # Run in thread pool to avoid blocking
