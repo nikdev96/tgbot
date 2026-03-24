@@ -172,13 +172,9 @@ class RoomManager:
             text: Message text
             source_lang: Source language code
         """
-        logger.info(f"🔍 DEBUG: broadcast_message called - room_id={room_id}, sender_id={sender_id}, text_len={len(text)}")
-
         # Get all members except sender
         members = await RoomManager.get_room_members(room_id)
         other_members = [m for m in members if m.user_id != sender_id]
-
-        logger.info(f"🔍 DEBUG: Room has {len(members)} members, {len(other_members)} recipients")
 
         if not other_members:
             logger.info(f"No other members in room {room_id}")
@@ -259,8 +255,6 @@ class RoomManager:
         """
         user_id = message.from_user.id
 
-        logger.info(f"🔍 DEBUG: handle_room_message called - user_id={user_id}, room={room.code}, message_id={message.message_id}, text_provided={text is not None}")
-
         # Use provided text or get from message
         if text is None:
             text = message.text
@@ -277,8 +271,6 @@ class RoomManager:
             )
             return
 
-        logger.info(f"🔍 DEBUG: Broadcasting message - room_id={room.id}, sender={user_id}, lang={source_lang}")
-
         # Broadcast to other members
         await RoomManager.broadcast_message(
             message,
@@ -287,8 +279,6 @@ class RoomManager:
             text,
             source_lang
         )
-
-        logger.info(f"🔍 DEBUG: Broadcast completed - room_id={room.id}, sender={user_id}")
 
 
 # Global instance

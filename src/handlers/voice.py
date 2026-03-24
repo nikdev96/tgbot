@@ -116,10 +116,11 @@ async def voice_handler(message: Message):
 
         # If user is in a room, handle as room message
         if active_room:
-            logger.info(f"🔍 DEBUG: User {user_id} in room {active_room.code}, calling handle_room_message")
-            await status_msg.delete()
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
             await RoomManager.handle_room_message(message, active_room, transcription)
-            logger.info(f"🔍 DEBUG: handle_room_message completed for user {user_id}")
             return
 
         # Process translation using existing logic (now with early transcription shown)

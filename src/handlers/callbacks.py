@@ -254,7 +254,11 @@ async def admin_callback(callback: CallbackQuery):
                 await callback.answer("❌ Error loading server status", show_alert=True)
 
     elif action in ["enable", "disable"]:
-        target_user_id = int(action_parts[2])
+        try:
+            target_user_id = int(action_parts[2])
+        except (ValueError, IndexError):
+            await callback.answer("❌ Invalid request", show_alert=True)
+            return
         disabled = action == "disable"
 
         # Update user status
